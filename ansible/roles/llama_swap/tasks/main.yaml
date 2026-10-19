@@ -8,24 +8,28 @@
     - huggingface
     - vllm
     - vllm-parsers
+  tags: config
 
 - name: Create llama-swap config directory
   file:
     path: "{{ ansible_user_dir }}/.config/llama-swap"
     state: directory
     mode: '0755'
+  tags: config
 
 - name: Create systemd user directory
   file:
     path: "{{ ansible_user_dir }}/.config/systemd/user"
     state: directory
     mode: '0755'
+  tags: config
 
 - name: Deploy llama-swap configuration
   template:
     src: config.yaml.j2
     dest: "{{ ansible_user_dir }}/.config/llama-swap/config.yaml"
     mode: '0644'
+  tags: config
 
 - name: Deploy llama-swap systemd service
   template:
@@ -33,6 +37,7 @@
     dest: "{{ ansible_user_dir }}/.config/systemd/user/llama-swap.service"
     mode: '0644'
   notify: reload systemd
+  tags: config
 
 - name: Ensure llama-swap service is started
   systemd:
