@@ -11,7 +11,7 @@
           "nudgeThreshold": {% set context = ((total_vram_gb * gpu_utilization - model.weights_gb) / model.kv_cache_per_token_gb - model.limit_output - model.limit_context_slack) | int %}{{ (context * 8) // 10 }},
           "nudgeFloor": {{ (context * 1) // 10 if (context * 1) // 10 >= 1000 else 1000 }},
           "maxCompressible": {{ (context * 15) // 100 }}
-        }{% if not loop.last and target_models[loop.index].opencode_enabled %},{% endif %}
+        }{% if not loop.last and target_models[loop.index + 1 if loop.index + 1 < target_models|length else 0].opencode_enabled %},{% endif %}
         {% endfor %}
       }
     }
@@ -28,7 +28,7 @@
             "context": {{ ((total_vram_gb * gpu_utilization - model.weights_gb) / model.kv_cache_per_token_gb - model.limit_output - model.limit_context_slack) | int }},
             "output": {{ model.limit_output | int }}
           }
-        }{% if not loop.last and target_models[loop.index].opencode_enabled %},{% endif %}
+        }{% if not loop.last and target_models[loop.index + 1 if loop.index + 1 < target_models|length else 0].opencode_enabled %},{% endif %}
         {% endfor %}
       ]
     }
