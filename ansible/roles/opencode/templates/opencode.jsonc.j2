@@ -1,4 +1,21 @@
 {
+  "compaction": {
+    "auto": false
+  },
+  "plugin": ["billion-context"],
+  "pluginConfig": {
+    "billion-context": {
+      "models": {
+        {% for model in target_models if model.opencode_enabled %}
+        "vllm/{{ model.id }}": {
+          "nudgeThreshold": {% set context = ((total_vram_gb * gpu_utilization - model.weights_gb) / model.kv_cache_per_token_gb - model.limit_output - model.limit_context_slack) | int %}{{ (context * 8) // 10 }},
+          "nudgeFloor": {{ (context * 1) // 10 if (context * 1) // 10 >= 1000 else 1000 }},
+          "maxCompressible": {{ (context * 15) // 100 }}
+        }{% if not loop.last and target_models[loop.index].opencode_enabled %},{% endif %}
+        {% endfor %}
+      }
+    }
+  },
   "providers": [
     {
       "id": "llama-swap",
