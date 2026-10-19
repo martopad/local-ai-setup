@@ -1,0 +1,232 @@
+# llama-swap: on-demand model switching in front of vLLM.
+#
+# llama-swap runs as a native binary on the host and spawns each model as a
+# throwaway podman container. It owns the container lifecycle via cmd/cmdStop,
+# which is why the per-model Quadlet units are no longer started directly --
+# see ../README.md. The Quadlet units are kept as a single-model debug path.
+#
+# Listens on 8000, the port opencode already points at, so switching between
+# this and a bare Quadlet unit needs no opencode change. Only one of the two
+# can run at a time; the port collision enforces that.
+
+# vLLM cold start is 60-120s with a warm torch.compile cache and much longer on
+# first run (weight download + graph capture). llama-swap's default of 120s is
+# far too low and produces spurious failures mid-swap.
+healthCheckTimeout: 1800
+
+logLevel: info
+
+# Ports handed to ${PORT}. Kept clear of 8000 (llama-swap itself) and 11434.
+startPort: 5800
+
+# Each model also sets `ttl: 1800`, which unloads it after 30 minutes idle so the
+# card is free when you walk away. `POST /api/models/unload` does it immediately.
+
+macros:
+  # Podman flags only, up to but NOT including the image. Everything after an
+  # image name is passed to the container's entrypoint instead of to podman, so
+  # --name and the image itself have to be spelled out per model below.
+  #
+  # Paths are absolute: llama-swap has no systemd specifiers, does not expand
+  # $HOME, and does not expand macros recursively inside other macros. Change
+  # /home/martin if your user differs.
+  #
+  # Mirrors the working glm-flash.container:
+  #   --device nvidia.com/gpu=all  CDI device, from `nvidia-ctk cdi generate`
+  #   --group-add keep-groups      Gentoo udev makes /dev/nvidia* 0660 root:video
+  #                                and rootless podman drops supplementary
+  #                                groups, so without this NVML reports
+  #                                "Insufficient Permissions". Requires crun.
+  #   --ipc=host                   vLLM needs a large shared-memory segment.
+  #   --rm --init                  No leftover containers; --init gives a real
+  #                                PID 1 so SIGTERM from cmdStop is honoured.
+  podman-flags: >-
+    podman run --rm --init
+    --device nvidia.com/gpu=all
+    --group-add keep-groups
+    --ipc=host
+    -p 127.0.0.1:${PORT}:8000
+    -v /home/martin/.cache/huggingface:/root/.cache/huggingface:z
+    -v /home/martin/.cache/vllm:/root/.cache/vllm:z
+    -v /home/martin/.cache/vllm-parsers:/parsers:z
+
+  # Pinned per model rather than globally so a single model can be moved to a
+  # different tag without disturbing the others.
+  vllm-image: docker.io/vllm/vllm-openai:v0.29.0
+
+models:
+  # ---------------------------------------------------------------------------
+  # GLM-4.7-Flash -- current daily driver. 31.2B total / ~3B active, MLA
+  # attention, 202K native context. The only config here that is empirically
+  # tuned; 65536 is the proven ceiling on 32GB (see README on the fp8 KV dead
+  # end).
+  #
+  # clear_thinking:false is the default on purpose. Both settings were measured
+  # and compaction frequency was the same either way, so true's only benefit --
+  # slower context growth -- does not materialise, while its cost is real: the
+  # model stops seeing its own prior reasoning. Retained reasoning is also where
+  # it records which approaches it already tried and rejected, which is the first
+  # thing compaction throws away.
+  #
+  # Flip to true only if you catch the model anchoring on a stale plan from an
+  # earlier turn. enable_thinking is a separate switch and is unaffected: the
+  # model still reasons on every turn and tool call either way.
+  # ---------------------------------------------------------------------------
+  "glm-4.7-flash":
+    name: "GLM-4.7-Flash (AWQ 4bit)"
+    cmd: >-
+      ${podman-flags}
+        --name vllm-glm-flash
+        ${vllm-image}
+        --model cyankiwi/GLM-4.7-Flash-AWQ-4bit
+        --served-model-name glm-4.7-flash
+        --tensor-parallel-size 1
+        --max-model-len 65536
+        --gpu-memory-utilization 0.90
+        --max-num-seqs 2
+        --tool-call-parser glm47
+        --reasoning-parser glm45
+        --enable-auto-tool-choice
+        --default-chat-template-kwargs '{"enable_thinking":true,"clear_thinking":false}'
+        --override-generation-config '{"temperature":0.7,"top_p":1.0,"repetition_penalty":1.0}'
+    cmdStop: podman stop -t 30 --ignore vllm-glm-flash
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /health
+    ttl: 1800
+
+  # ---------------------------------------------------------------------------
+  # Qwen3-Coder-30B-A3B -- the non-thinking control. 30.5B total / 3.3B active,
+  # GQA with 32 Q heads and 4 KV heads over 48 layers, 262K native. Emits no
+  # reasoning blocks at all, so this is the clean measurement of what thinking
+  # tokens cost. Deliberately has no --reasoning-parser.
+  #
+  # Sampling is Qwen's published recommendation and differs from GLM's: top_p
+  # 0.8, top_k 20, and a non-zero repetition_penalty that GLM explicitly wants
+  # off. It does not inherit GLM's settings.
+  #
+  # 98304 is an estimate, not measured. ~96KB/token of cache on top of ~17GB of
+  # weights. Step down to 65536 if vLLM refuses to start.
+  # ---------------------------------------------------------------------------
+  "qwen3-coder":
+    name: "Qwen3-Coder-30B-A3B (AWQ, non-thinking)"
+    cmd: >-
+      ${podman-flags}
+        --name vllm-qwen3-coder
+        ${vllm-image}
+        --model cpatonn/Qwen3-Coder-30B-A3B-Instruct-AWQ
+        --served-model-name qwen3-coder
+        --tensor-parallel-size 1
+        --max-model-len 98304
+        --gpu-memory-utilization 0.90
+        --max-num-seqs 2
+        --tool-call-parser qwen3_coder
+        --enable-auto-tool-choice
+        --override-generation-config '{"temperature":0.7,"top_p":0.8,"top_k":20,"repetition_penalty":1.05}'
+    cmdStop: podman stop -t 30 --ignore vllm-qwen3-coder
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /health
+    ttl: 1800
+
+  # ---------------------------------------------------------------------------
+  # Nemotron 3 Nano 30B-A3B -- the interesting one for the KV problem. Hybrid
+  # Mamba-2/Transformer: 23 Mamba-2 + MoE layers and only 6 attention layers, so
+  # most of the network carries fixed-size recurrent state that does not grow
+  # with sequence length. 1M native context.
+  #
+  # NVFP4 is the only variant that fits: BF16 is ~60GB and FP8 ~30GB leaves no
+  # room for cache. NVFP4 is Blackwell-native and first-party from NVIDIA, not a
+  # community requant. vLLM detects it as modelopt_fp4, so no --quantization.
+  #
+  # PREREQUISITE -- the reasoning parser ships as a loose file, not inside vLLM:
+  #   mkdir -p ~/.cache/vllm-parsers && cd ~/.cache/vllm-parsers
+  #   wget https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16/resolve/main/nano_v3_reasoning_parser.py
+  # Without it vLLM exits at startup. Use nano_v3, not a DeepSeek parser --
+  # there is a known tool-calling bug with the wrong parser.
+  #
+  # Reasoning is switched off per-request with {"enable_thinking": false} rather
+  # than a server flag, so there is no --default-chat-template-kwargs here. The
+  # model also honours a thinking-token budget, a finer-grained version of GLM's
+  # clear_thinking switch.
+  #
+  # 131072 is conservative given how little of this model accumulates KV. Raise
+  # it if reported cache utilisation stays low under real work.
+  # ---------------------------------------------------------------------------
+  "nemotron-nano-3":
+    name: "Nemotron 3 Nano 30B-A3B (NVFP4, Mamba hybrid)"
+    cmd: >-
+      ${podman-flags}
+        --name vllm-nemotron
+        ${vllm-image}
+        --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4
+        --served-model-name nemotron-nano-3
+        --trust-remote-code
+        --tensor-parallel-size 1
+        --max-model-len 131072
+        --gpu-memory-utilization 0.90
+        --max-num-seqs 2
+        --tool-call-parser qwen3_coder
+        --enable-auto-tool-choice
+        --reasoning-parser-plugin /parsers/nano_v3_reasoning_parser.py
+        --reasoning-parser nano_v3
+        --mamba-ssm-cache-dtype float32
+        --async-scheduling
+    cmdStop: podman stop -t 30 --ignore vllm-nemotron
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /health
+    ttl: 1800
+
+  # ---------------------------------------------------------------------------
+  # Gemma 4 26B-A4B -- 25.2B total / 3.8B active, 30 layers, 128 experts with 8
+  # active plus 1 shared, 1024-token sliding window, 256K native, multimodal.
+  # At ~14GB the weights are the smallest of the four, leaving the most room for
+  # cache.
+  #
+  # INCOMPLETE -- tool calling is unresolved. Gemma 4 supports function calling,
+  # but which vLLM tool-call parser handles its format is not confirmed, and a
+  # wrong value fails at startup rather than degrading. Without it opencode's
+  # tool calls will not be parsed, so this entry is chat-only for now. Find the
+  # right value with:
+  #   podman run --rm docker.io/vllm/vllm-openai:v0.29.0 \
+  #     vllm serve --help | grep -A20 'tool-call-parser'
+  # then add:
+  #   --enable-auto-tool-choice
+  #   --tool-call-parser <value>
+  #
+  # Thinking exists in the open weights but is off by default and is set via chat
+  # template kwargs. The key name is unverified -- confirm against the
+  # checkpoint's chat template before trusting it:
+  #   --default-chat-template-kwargs '{"enable_thinking":true}'
+  #
+  # --dtype float16 and --quantization awq_marlin are both required by the AWQ
+  # checkpoints. An AWQ MoE weight-loading bug (KeyError on packed expert names)
+  # affected older vLLM but predates v0.29.0.
+  #
+  # Alternatives if this checkpoint misbehaves:
+  #   cyankiwi/gemma-4-26B-A4B-it-qat-AWQ-INT4   QAT, best quality retention
+  #   dhruvil237/gemma-4-26B-A4B-it-W4A16        GPTQ compressed-tensors, group 64
+  #     (group 64 is deliberate: some MoE down_proj widths are 704 and 2112,
+  #      not divisible by 128, so a default G128 export is invalid)
+  #
+  # An official MTP draft head (gemma-4-26B-A4B-it-assistant) exists for
+  # speculative decoding. Not enabled: it costs KV headroom, and at least one
+  # report measured it slower than no speculation on this model.
+  # ---------------------------------------------------------------------------
+  "gemma-4-26b-a4b":
+    name: "Gemma 4 26B-A4B (AWQ 4bit) -- tool calling unverified"
+    cmd: >-
+      ${podman-flags}
+        --name vllm-gemma4
+        ${vllm-image}
+        --model cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit
+        --served-model-name gemma-4-26b-a4b
+        --tensor-parallel-size 1
+        --max-model-len 98304
+        --gpu-memory-utilization 0.90
+        --max-num-seqs 2
+        --reasoning-parser gemma4
+        --enable-auto-tool-choice
+        --tool-call-parser gemma4
+    cmdStop: podman stop -t 30 --ignore vllm-gemma4
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /health
+    ttl: 1800

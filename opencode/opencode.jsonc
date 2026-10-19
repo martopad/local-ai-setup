@@ -1,0 +1,48 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "compaction": {
+    "auto": false
+  },
+  "providers": {
+    "vllm": {
+      "package": "@opencode/ai/providers/openai-compatible",
+      "name": "local (llama-swap / vLLM)",
+      "settings": {
+        "baseURL": "http://127.0.0.1:8000/v1",
+        "baseURL": "http://127.0.0",
+        "apiKey": "unused"
+      },
+      "models": {
+        "glm-4.7-flash": {
+          "name": "GLM-4.7-Flash",
+          "limits": {
+            "maxInputTokens": 53248,
+            "maxOutputTokens": 8192
+          }
+        },
+        "qwen3-coder": {
+          "name": "Qwen3-Coder-30B-A3B (non-thinking)",
+          "limits": {
+            "maxInputTokens": 86016,
+            "maxOutputTokens": 8192
+          }
+        },
+        "nemotron-nano-3": {
+          "name": "Nemotron 3 Nano 30B-A3B (Mamba hybrid)",
+          "limits": {
+            "maxInputTokens": 118784,
+            "maxOutputTokens": 8192
+          }
+        },
+        "gemma-4-26b-a4b": {
+          "name": "Gemma 4 26B-A4B",
+          "limits": {
+            "maxInputTokens": 86016,
+            "maxOutputTokens": 8192
+          }
+        }
+      }
+    }
+  },
+  "model": "vllm/glm-4.7-flash"
+}

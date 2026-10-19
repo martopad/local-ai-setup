@@ -1,0 +1,51 @@
+# Install to ~/.config/systemd/user/llama-swap.service
+#
+# Deliberately a plain systemd unit rather than a Quadlet .container. llama-swap
+# spawns podman containers itself, and running it *inside* a container would mean
+# bind-mounting the rootless podman socket so it could start siblings -- more
+# moving parts, and a second thing that can break the way GPU passthrough did.
+# It is a single static Go binary, so running it on the host is simpler.
+#
+# Installed from a Portage overlay, which puts the binary in /usr/bin. Confirm
+# with `command -v llama-swap` and correct ExecStart below if it differs.
+#
+#   mkdir -p ~/.config/llama-swap ~/.config/systemd/user
+#   cp config.yaml ~/.config/llama-swap/config.yaml
+#   cp llama-swap.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user start llama-swap
+#
+# This is deliberately a **user** unit, not the system unit an ebuild may ship.
+# The spawned vLLM containers have to run as your user: rootless podman, the HF
+# cache under your home, and `video` group membership for /dev/nvidia*. A system
+# service running as root or a dedicated llama-swap user would not have those.
+# If the ebuild installed a system unit, leave it disabled.
+
+[Unit]
+Description=llama-swap model router in front of vLLM
+Documentation=https://github.com/mostlygeek/llama-swap
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Listens on the port opencode already uses, so no client-side change is needed
+# when swapping between this and a bare Quadlet unit. Models get ports from
+# startPort in config.yaml instead.
+ExecStart=/usr/bin/llama-swap --config %h/.config/llama-swap/config.yaml --listen 127.0.0.1:8000
+
+# Give llama-swap time to run cmdStop and let vLLM shut down cleanly.
+TimeoutStopSec=60
+KillMode=mixed
+
+# Safety net. A vLLM container that outlives llama-swap keeps ~15-17GB of VRAM
+# pinned and the next start will fail to allocate. Cheap to make unconditional.
+ExecStopPost=/bin/sh -c 'podman stop -t 30 --ignore vllm-glm-flash vllm-qwen3-coder vllm-nemotron vllm-gemma4 || true'
+
+Restart=on-failure
+RestartSec=5
+
+# No [Install] section: manual-start only, matching the Quadlet setup. Enable it
+# with `systemctl --user enable llama-swap` plus `loginctl enable-linger $USER`
+# if you ever want it at boot.
