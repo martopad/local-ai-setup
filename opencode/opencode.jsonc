@@ -15,7 +15,7 @@
         "glm-4.7-flash": {
           "name": "GLM-4.7-Flash (Local)",
           "limits": {
-            "maxInputTokens": 53248,
+            "maxInputTokens": 53247,
             "maxOutputTokens": 8192
           }
         },

@@ -68,24 +68,6 @@ podman inspect --format='{{index .RepoDigests 0}}' docker.io/vllm/vllm-openai:v0
 
 ## Install and start
 
-### Quadlet units
-
-```bash
-mkdir -p ~/.config/containers/systemd
-cp *.container ~/.config/containers/systemd/
-systemctl --user daemon-reload
-systemctl --user start glm-flash
-journalctl --user -u glm-flash -f
-```
-
-Nemotron additionally needs its reasoning parser fetched to the host first, or
-vLLM exits at startup:
-
-```bash
-mkdir -p ~/.cache/vllm-parsers && cd ~/.cache/vllm-parsers
-wget https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16/resolve/main/nano_v3_reasoning_parser.py
-```
-
 ### llama-swap
 
 Installed from a Portage overlay. Confirm where the binary landed and whether the
@@ -110,34 +92,32 @@ systemctl --user daemon-reload
 systemctl --user start llama-swap
 ```
 
-Edit the `/home/myung` paths in `config.yaml` if your user differs — llama-swap
+Edit the `/home/martin` paths in `config.yaml` if your user differs — llama-swap
 does not expand `$HOME` or systemd specifiers. Then:
 
 ```bash
 curl -s localhost:8000/v1/models | jq -r '.data[].id'   # all four, none loaded yet
 ```
 
-Requesting any of them loads it on demand. Stop llama-swap before starting a
-Quadlet unit; they collide on port 8000 by design, and the `Conflicts=` lines make
-systemd enforce it in both directions once all units are installed.
+Requesting any of them loads it on demand.
 
 First boot downloads ~17GB of weights and compiles the model graph, so expect a
-long wait. `TimeoutStartSec=1800` accounts for it.
+long wait. The `healthCheckTimeout: 1800` config accounts for it.
 
-The unit is **manual-start only** — it has no `[Install]` section, so nothing
+The service is **manual-start only** — it has no `[Install]` section, so nothing
 brings it up at boot. Start and stop it yourself:
 
 ```bash
-systemctl --user start glm-flash
-systemctl --user stop glm-flash
+systemctl --user start llama-swap
+systemctl --user stop llama-swap
 ```
 
-Do **not** run `systemctl --user enable` — Quadlet-generated units cannot be
-enabled. If you later want autostart, uncomment the `[Install]` section in the
-`.container` file, run `daemon-reload`, and add `loginctl enable-linger "$USER"`
+Do **not** run `systemctl --user enable` — the service is manual-start only.
+If you later want autostart, uncomment the `[Install]` section in the
+`llama-swap.service` file, run `daemon-reload`, and add `loginctl enable-linger "$USER"`
 so your user session's systemd instance persists across logout.
 
-Do not use `podman stop` either. `Restart=always` will bring the container
+Do not use `podman stop` either. `Restart=always` will bring the service
 back; systemd owns the lifecycle.
 
 ## Verify
@@ -271,9 +251,9 @@ Three things worth knowing before committing to it:
   short of that and produces spurious mid-swap failures, so the config sets 1800.
   There is a known readiness-check gap where a too-tight timeout surfaces errors
   to the client instead of queueing.
-- **It wants to own the container lifecycle** through `cmd`/`cmdStop`. That is
-  why the Quadlet units are not started alongside it — the port collision and the
-  `Conflicts=` lines make the two paths mutually exclusive on purpose.
+- **It wants to own the container lifecycle** through `cmd`/`cmdStop`. There are no
+  Quadlet units anymore — llama-swap starts the containers directly to avoid the
+  port collision and lifecycle management conflicts.
 - **llama.cpp is its best-supported backend**, not vLLM. Running Python inference
   servers under podman is the project's own recommendation, which is what the
   config does.
@@ -306,7 +286,7 @@ are Mamba-2, which carry fixed-size recurrent state that does not grow with
 sequence length. NVFP4 is the only variant that fits — BF16 is ~60GB and FP8
 ~30GB leaves nothing for cache — and it is Blackwell-native and published by
 NVIDIA rather than community-requantised. It needs a parser file fetched
-separately; see the comment in `nemotron-nano.container`.
+separately; see the `nemotron` configuration in `llama-swap/config.yaml`.
 
 **Why Qwen3-Coder is worth running even though it is the oldest.** It emits no
 reasoning blocks whatsoever, which makes it the clean measurement of what
@@ -610,15 +590,6 @@ curl -s localhost:8000/metrics | grep -E 'gpu_cache_usage|num_requests'
 ```
 
 ## Troubleshooting
-
-**Unit won't parse.** See the actual `podman run` command Quadlet generates:
-
-```bash
-/usr/libexec/podman/quadlet -dryrun -user
-```
-
-If your Podman version rejects CDI names in `AddDevice=`, replace that line
-with `PodmanArgs=--device nvidia.com/gpu=all`.
 
 ### GPU not visible in the container
 

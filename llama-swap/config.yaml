@@ -1,13 +1,11 @@
 # llama-swap: on-demand model switching in front of vLLM.
 #
 # llama-swap runs as a native binary on the host and spawns each model as a
-# throwaway podman container. It owns the container lifecycle via cmd/cmdStop,
-# which is why the per-model Quadlet units are no longer started directly --
-# see ../README.md. The Quadlet units are kept as a single-model debug path.
+# throwaway podman container. It owns the container lifecycle via cmd/cmdStop.
 #
 # Listens on 8000, the port opencode already points at, so switching between
-# this and a bare Quadlet unit needs no opencode change. Only one of the two
-# can run at a time; the port collision enforces that.
+# models needs no opencode change. Only one model can run at a time; the port
+# collision enforces that.
 
 # vLLM cold start is 60-120s with a warm torch.compile cache and much longer on
 # first run (weight download + graph capture). llama-swap's default of 120s is

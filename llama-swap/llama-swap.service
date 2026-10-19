@@ -1,10 +1,10 @@
 # Install to ~/.config/systemd/user/llama-swap.service
 #
-# Deliberately a plain systemd unit rather than a Quadlet .container. llama-swap
-# spawns podman containers itself, and running it *inside* a container would mean
-# bind-mounting the rootless podman socket so it could start siblings -- more
-# moving parts, and a second thing that can break the way GPU passthrough did.
-# It is a single static Go binary, so running it on the host is simpler.
+# Deliberately a plain systemd unit. llama-swap spawns podman containers itself,
+# and running it *inside* a container would mean bind-mounting the rootless podman
+# socket so it could start siblings -- more moving parts, and a second thing that
+# can break the way GPU passthrough did. It is a single static Go binary, so
+# running it on the host is simpler.
 #
 # Installed from a Portage overlay, which puts the binary in /usr/bin. Confirm
 # with `command -v llama-swap` and correct ExecStart below if it differs.
@@ -30,9 +30,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 
-# Listens on the port opencode already uses, so no client-side change is needed
-# when swapping between this and a bare Quadlet unit. Models get ports from
-# startPort in config.yaml instead.
+# Listens on the port opencode already uses, so no client-side change is needed.
+# Models get ports from startPort in config.yaml instead.
 ExecStart=/usr/bin/llama-swap --config %h/.config/llama-swap/config.yaml --listen 127.0.0.1:8000
 
 # Give llama-swap time to run cmdStop and let vLLM shut down cleanly.
@@ -46,6 +45,6 @@ ExecStopPost=/bin/sh -c 'podman stop -t 30 --ignore vllm-glm-flash vllm-qwen3-co
 Restart=on-failure
 RestartSec=5
 
-# No [Install] section: manual-start only, matching the Quadlet setup. Enable it
-# with `systemctl --user enable llama-swap` plus `loginctl enable-linger $USER`
+# No [Install] section: manual-start only. Enable it with
+# `systemctl --user enable llama-swap` plus `loginctl enable-linger $USER`
 # if you ever want it at boot.
