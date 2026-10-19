@@ -1,0 +1,8 @@
+---
+- name: Deploy llama-swap on local host
+  hosts: local
+  roles:
+    - system_base
+    - nvidia_cdi
+    - llama_swap
+    - opencode

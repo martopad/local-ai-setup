@@ -1,0 +1,6 @@
+---
+- name: Generate NVIDIA CDI spec
+  command: nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+  become: true
+  args:
+    creates: /etc/cdi/nvidia.yaml

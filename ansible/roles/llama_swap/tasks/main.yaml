@@ -1,0 +1,43 @@
+---
+- name: Create cache and config directories
+  file:
+    path: "{{ ansible_user_dir }}/.cache/{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - huggingface
+    - vllm
+    - vllm-parsers
+
+- name: Create llama-swap config directory
+  file:
+    path: "{{ ansible_user_dir }}/.config/llama-swap"
+    state: directory
+    mode: '0755'
+
+- name: Create systemd user directory
+  file:
+    path: "{{ ansible_user_dir }}/.config/systemd/user"
+    state: directory
+    mode: '0755'
+
+- name: Deploy llama-swap configuration
+  template:
+    src: config.yaml.j2
+    dest: "{{ ansible_user_dir }}/.config/llama-swap/config.yaml"
+    mode: '0644'
+
+- name: Deploy llama-swap systemd service
+  template:
+    src: llama-swap.service.j2
+    dest: "{{ ansible_user_dir }}/.config/systemd/user/llama-swap.service"
+    mode: '0644'
+  notify: reload systemd
+
+- name: Ensure llama-swap service is started
+  systemd:
+    name: llama-swap
+    state: started
+    scope: user
+  become: false
+  ignore_errors: true
