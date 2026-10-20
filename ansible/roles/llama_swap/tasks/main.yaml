@@ -29,7 +29,9 @@
     src: config.yaml.j2
     dest: "{{ ansible_user_dir }}/.config/llama-swap/config.yaml"
     mode: '0644'
-  tags: config
+  tags:
+    - config
+    - llama-swap-config
 
 - name: Deploy llama-swap systemd service
   template:
@@ -37,7 +39,9 @@
     dest: "{{ ansible_user_dir }}/.config/systemd/user/llama-swap.service"
     mode: '0644'
   notify: reload systemd
-  tags: config
+  tags:
+    - config
+    - llama-swap-config
 
 - name: Ensure llama-swap service is started
   systemd:

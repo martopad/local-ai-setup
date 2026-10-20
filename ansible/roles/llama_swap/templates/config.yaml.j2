@@ -35,27 +35,27 @@
 #
 # Model-specific comments are stored in ansible/group_vars/all.yaml.
 #
-podman-flags: >-
-  podman run --rm --init
-  --device nvidia.com/gpu=all
-  --group-add keep-groups
-  --ipc=host
-  -p 127.0.0.1:${PORT}:8000
-  -v {{ ansible_user_dir }}/.cache/huggingface:/root/.cache/huggingface:z
-  -v {{ ansible_user_dir }}/.cache/vllm:/root/.cache/vllm:z
-  -v {{ ansible_user_dir }}/.cache/vllm-parsers:/parsers:z
+healthCheckTimeout: 1800
+logLevel: info
+startPort: 5800
 
 models:
 {% for model in target_models %}
   "{{ model.id }}":
     name: "{{ model.name }}"
     cmd: >-
-      ${podman-flags}
-        {{ model.vllm_image }}
-        --max-model-len {{ ((total_vram_gb * gpu_utilization - model.weights_gb) / model.kv_cache_per_token_gb) | int }}
-        {% for arg in model.cmd_args %}
-        {{ arg }}
-        {% endfor %}
+      podman run --rm --init
+      --device nvidia.com/gpu=all
+      --group-add keep-groups
+      --ipc=host
+      -p 127.0.0.1:${PORT}:8000
+      -v {{ ansible_user_dir }}/.cache/huggingface:/root/.cache/huggingface:z
+      -v {{ ansible_user_dir }}/.cache/vllm:/root/.cache/vllm:z
+      -v {{ ansible_user_dir }}/.cache/vllm-parsers:/parsers:z
+      {{ model.cmd_args[0] }}
+      {{ model.vllm_image }}
+      --max-model-len {{ ((total_vram_gb * gpu_utilization - model.weights_gb) / model.kv_cache_per_token_gb) | int }}
+      {{ model.cmd_args[1:] | join(' ') }}
     cmdStop: "{{ model.cmdStop }}"
     proxy: "{{ model.proxy }}"
     checkEndpoint: {{ model.checkEndpoint }}
