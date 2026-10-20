@@ -1,19 +1,19 @@
----
-- name: Install podman and nvidia-container-toolkit
-  command: emerge -av app-containers/podman app-containers/nvidia-container-toolkit
-  become: true
-  changed_when: false # emerge is complex, we'll assume it's idempotent if we check later or just skip for now in this prototype
-
-- name: Generate NVIDIA CDI spec
-  command: nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
-  become: true
-  args:
-    creates: /etc/cdi/nvidia.yaml
-
-- name: Ensure subuid/subgid are configured for the current user
-  shell: |
-    if ! grep -q "{{ ansible_user_id }}" /etc/subuid; then
-      usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "{{ ansible_user_id }}"
-    fi
-  become: true
-  changed_when: false
+# ---
+# - name: Install podman and nvidia-container-toolkit
+#   command: emerge -av app-containers/podman app-containers/nvidia-container-toolkit
+#   become: true
+#   changed_when: false # emerge is complex, we'll assume it's idempotent if we check later or just skip for now in this prototype
+# 
+# - name: Generate NVIDIA CDI spec
+#   command: nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+#   become: true
+#   args:
+#     creates: /etc/cdi/nvidia.yaml
+# 
+# - name: Ensure subuid/subgid are configured for the current user
+#   shell: |
+#     if ! grep -q "{{ ansible_user_id }}" /etc/subuid; then
+#       usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "{{ ansible_user_id }}"
+#     fi
+#   become: true
+#   changed_when: false
