@@ -5,4 +5,5 @@
     - system_base
     - nvidia_cdi
     - llama_swap
-    - opencode
+    - role: opencode
+      tags: [opencode]
