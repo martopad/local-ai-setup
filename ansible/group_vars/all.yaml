@@ -191,3 +191,30 @@ target_models:
     checkEndpoint: "/health"
     ttl: 1800
     opencode_enabled: true
+
+  # ---------------------------------------------------------------------------
+  # EmbeddingGemma 2 -- The "Librarian". Lightweight multimodal embedding model.
+  # Use-cases:
+  #   - RAG (Retrieval-Augmented Generation): Mapping text/code to vectors.
+  #   - Semantic Search: Finding information based on meaning rather than keywords.
+  #   - Long-term Memory: Storing conversation history in a vector database.
+  # ---------------------------------------------------------------------------
+  - id: "embedding-gemma-2"
+    name: "EmbeddingGemma 2 (Text Only)"
+    vllm_image: "docker.io/vllm/vllm-openai:v0.32.0"
+    weights_gb: 0.5
+    kv_cache_per_token_gb: 0.00001
+    limit_output: 1024
+    limit_context_slack: 1024
+    cmd_args:
+      - "--name vllm-embedding-gemma"
+      - "--model google/embeddinggemma-2"
+      - "--served-model-name embedding-gemma-2"
+      - "--tensor-parallel-size 1"
+      - "--gpu-memory-utilization 0.20"
+      - "--max-model-len 2048"
+    cmdStop: "podman stop -t 30 --ignore vllm-embedding-gemma"
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: "/health"
+    ttl: 1800
+    opencode_enabled: true
