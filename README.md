@@ -183,6 +183,50 @@ Notes for the new box:
 - The NVFP4 models need the `localhost/vllm-openai:0.32.0-nvfp4-fix` image
   built from the repo's `Containerfile` before their entries can start.
 
+## Strix Halo boxes: GFX UMA memory split
+
+Strix Halo boards (Ryzen AI MAX+ 395, Radeon 8060S / gfx1151) have an
+**integrated** GPU: the iGPU's "VRAM" is a carve-out of the same LPDDR5X
+pool as system RAM, not a separate chip. Two pools exist:
+
+- **UMA carve-out (BIOS)** — a *permanent* reservation of system RAM as
+  the iGPU's dedicated framebuffer.
+- **GTT/TTM (kernel)** — ordinary system RAM the iGPU maps *on demand*
+  and the OS can reclaim when the GPU isn't using it.
+
+AMD's own Strix Halo optimization doc (rocmdocs.amd.com) recommends the
+counterintuitive combination: **keep the BIOS carve-out at its minimum
+(512 MB-1 GB) and raise the GTT limit instead.** A big fixed carve-out
+just removes RAM from the OS permanently; the GTT pool is where the
+serving workloads actually live.
+
+On Windows the driver caps the GPU pool at ~96 GiB on a 128 GB board;
+Linux has no such cap (community-tested stable at ~108-115 GiB GTT).
+
+Steps for a new Strix Halo box:
+
+1. **BIOS:** set the UMA frame buffer (labels vary: "UMA Frame Buffer
+   Size", "GMA", "iGPU Memory"; documented path
+   `Advanced > AMD CBS > NBIO > GFX Configuration`) to its minimum.
+   Some boards expose no such menu — then set the carve-out from Linux
+   via the ACPI path (`bytetroll/linux-amd-halo-carveout` tool).
+2. **GTT limit (Ansible-managed):** set `amd_gtt_limit_pages` in the
+   box's `host_vars` (4 KiB pages: `target GiB * 1024**3 / 4096`).
+   The `amd_gtt` role renders `/etc/modprobe.d/ttm.conf`
+   (`options ttm pages_limit/page_pool_size` — the file AMD's `amd-ttm`
+   tool writes), so the limit is a repo value, not a hand edit.
+   Leave a working OS margin (m5ai01 uses 110 GiB of ~124.5 GiB,
+   ~14.5 GiB left for the OS; the limit is a ceiling on shared RAM the
+   GPU may pin, not a dedicated reservation).
+3. **Reboot** and verify: `dmesg | grep -i amdgpu` (VRAM/GTT lines) and
+   `/sys/class/drm/card0/device/mem_info_gtt_total`. A bad value fails
+   safely (kernel keeps its default; it cannot brick the boot).
+
+Pitfalls: after the change, `mem_info_vram_total` reports only the tiny
+carve-out — do not let tools that plan off it size the pool (known ROCm
+reporting quirk); verify with a real vLLM boot. Parameter names vary by
+kernel (`ttm.*` on 6.18; newer kernels use `amdttm.*`).
+
 ## Configuration notes
 
 **Preserved Thinking** is set server-side via `--default-chat-template-kwargs`
