@@ -4,9 +4,16 @@ all:
       hosts:
         localhost:
           ansible_connection: local
-        # --- future model boxes (SSH from this host) ---------------------
-        # vllm-b:
+        # Strix Halo box: AMD gfx1151 (Radeon 8060S), 128 GB unified.
+        # Bootstrap phase: deployment gates in host_vars/m5ai01.yaml keep
+        # the vllm-side roles off until podman/llama-swap are installed.
+        m5ai01:
+          ansible_host: 192.168.0.4
+          ansible_user: root
+          ansible_private_key_file: /home/martin/.ssh/keys/root.key
+        # --- further model boxes (SSH from this host) -------------------
+        # vllm-c:
         #   ansible_host: 192.168.0.x
         #   ansible_user: prod
-        #   # host-specific keys: ansible/host_vars/vllm-b.yaml
+        #   # host-specific keys: ansible/host_vars/vllm-c.yaml
         #   # (contract: ansible/host_vars/vllm-host-example.yaml)

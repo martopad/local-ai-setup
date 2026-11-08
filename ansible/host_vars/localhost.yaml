@@ -6,4 +6,5 @@
 # Full key contract: ansible/host_vars/vllm-host-example.yaml
 
 opencode_managed: true     # only this box renders ~/.config/opencode/opencode.jsonc
-llama_swap_install: false  # binary is hand-managed here (v265 at /usr/bin/llama-swap)
+llama_swap_deploy: true    # this box runs the llama-swap service
+llama_swap_install: false  # binary is portage-managed here (sci-misc/llama-swap)

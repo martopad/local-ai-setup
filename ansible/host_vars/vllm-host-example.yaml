@@ -11,13 +11,27 @@
 #   (c) caches auto-create on first container run; model weights download
 #       lazily (multi-GB) or rsync from an existing box
 #
-# Keys:
+# Keys (deployment gates; defaults keep the shared box working):
 #total_vram_gb: 24.0        # KV-pool sanity check only; override per host
 #llama_swap_models: []      # this host's model definitions (args/images are
 #                           # GPU-specific); omit to inherit target_models
-#llama_swap_install: true   # install /usr/bin/llama-swap (pinned release)
+#opencode_managed: false    # true only on the box that runs the opencode
+#                           # client (localhost); default false
+#nvidia_cdi_managed: false  # false on AMD/Strix Halo boxes (no nvidia-ctk);
+#                           # default true
+#llama_swap_install: false  # true: install llama-swap (portage sci-misc/
+#                           # llama-swap via the stuff overlay on Gentoo,
+#                           # pinned release tarball elsewhere); default false
+#llama_swap_deploy: false   # true: deploy config + service unit + start the
+#                           # llama-swap service; default false until the
+#                           # install step has run on that host
 #system_base_managed: true  # run system_base tasks (podman + nvidia-container-
 #                           # toolkit emerge, subuid/subgid range)
+#amd_gtt_limit_pages: 0     # Strix Halo only: iGPU GTT/TTM pool limit in 4K
+#                           # pages (target GiB * 1024**3 / 4096); rendered
+#                           # to /etc/modprobe.d/ttm.conf by the amd_gtt role
+#                           # (AMD official: BIOS UMA carve-out to its minimum,
+#                           # raise GTT instead). Omit on NVIDIA boxes.
 #podman_cache_base: "{{ ansible_user_dir }}/.cache"
 #                         # override only if caches live elsewhere
 #gpu_podman_flags: []       # override only if this host's podman/udev differs

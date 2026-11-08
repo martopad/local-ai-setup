@@ -1,0 +1,24 @@
+---
+# iGPU GTT/TTM pool limit for unified-memory APUs (Strix Halo / gfx1151).
+#
+# Renders /etc/modprobe.d/ttm.conf — the same file AMD's amd-ttm tool
+# writes — so the limit is Ansible-owned, not a hand edit. The value is
+# `amd_gtt_limit_pages` (host_vars): 4 KiB pages, i.e. target GiB *
+# 1024**3 / 4096. Gated on the variable being defined: NVIDIA boxes never
+# define it, so the task is a no-op there. Takes effect on reboot.
+#
+# Prerequisite (manual, per box): BIOS UMA frame buffer at its minimum
+# (512 MB-1 GB) — see the README "Strix Halo boxes: GFX UMA" section.
+- name: Manage iGPU GTT/TTM limit (amdgpu unified memory)
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/ttm.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by Ansible (role amd_gtt, variable amd_gtt_limit_pages).
+      # 4 KiB pages; reboot after a change.
+      options ttm pages_limit={{ amd_gtt_limit_pages }}
+      options ttm page_pool_size={{ amd_gtt_limit_pages }}
+  become: true
+  when: amd_gtt_limit_pages is defined

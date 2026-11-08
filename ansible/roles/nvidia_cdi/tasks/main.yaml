@@ -1,6 +1,11 @@
 ---
+# Gated per host: `nvidia_cdi_managed` (host_vars; true on NVIDIA boxes
+# like localhost, false on AMD/Strix Halo boxes that have no nvidia-ctk).
+# The `creates` guard keeps the run idempotent; the gate keeps it from
+# failing on hosts where the tool simply doesn't exist.
 - name: Generate NVIDIA CDI spec
   command: nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
   become: true
   args:
     creates: /etc/cdi/nvidia.yaml
+  when: nvidia_cdi_managed | default(true)

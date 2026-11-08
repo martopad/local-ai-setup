@@ -1,4 +1,8 @@
 ---
+# Deployment gate: `llama_swap_deploy` (host_vars; default false —
+# fail-closed, so a new box in the vllm group does not get a premature
+# config/unit before podman and the binary exist. localhost sets it
+# true in its host_vars.)
 - name: Create cache and config directories
   file:
     path: "{{ ansible_user_dir }}/.cache/{{ item }}"
@@ -8,6 +12,7 @@
     - huggingface
     - vllm
     - vllm-parsers
+  when: llama_swap_deploy | default(false)
   tags: config
 
 - name: Create llama-swap config directory
@@ -15,6 +20,7 @@
     path: "{{ ansible_user_dir }}/.config/llama-swap"
     state: directory
     mode: '0755'
+  when: llama_swap_deploy | default(false)
   tags: config
 
 - name: Create systemd user directory
@@ -22,6 +28,7 @@
     path: "{{ ansible_user_dir }}/.config/systemd/user"
     state: directory
     mode: '0755'
+  when: llama_swap_deploy | default(false)
   tags: config
 
 - name: Deploy llama-swap configuration
@@ -29,6 +36,7 @@
     src: config.yaml.j2
     dest: "{{ ansible_user_dir }}/.config/llama-swap/config.yaml"
     mode: '0644'
+  when: llama_swap_deploy | default(false)
   tags:
     - config
     - llama-swap-config
@@ -38,6 +46,7 @@
     src: llama-swap.service.j2
     dest: "{{ ansible_user_dir }}/.config/systemd/user/llama-swap.service"
     mode: '0644'
+  when: llama_swap_deploy | default(false)
   notify: reload systemd
   tags:
     - config
@@ -50,3 +59,4 @@
     scope: user
   become: false
   ignore_errors: true
+  when: llama_swap_deploy | default(false)

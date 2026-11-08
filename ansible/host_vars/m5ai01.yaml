@@ -1,0 +1,24 @@
+---
+# m5ai01 — Strix Halo (Ryzen AI MAX+ 395 / Radeon 8060S, gfx1151),
+# 128 GB unified memory, Gentoo. In the `vllm` inventory group; the
+# gates below keep the vllm-side roles off during the bootstrap phase,
+# so only the amd_gtt role (GTT limit) is active against it right now.
+
+# iGPU GTT/TTM pool limit, managed by the amd_gtt role
+# (/etc/modprobe.d/ttm.conf). 4 KiB pages: 110 GiB * 1024**3 / 4096.
+# The BIOS UMA carve-out on this box is at its 1G minimum, so the OS
+# keeps ~14.5 GiB and the iGPU can address ~110 GiB of the unified pool.
+# See the README "Strix Halo (AMD Strix Halo boxes): GFX UMA" section.
+amd_gtt_limit_pages: 28835840
+
+# Deployment gates: OFF while the box is not bootstrapped yet.
+# Flip as the bootstrap proceeds:
+#   1. system_base_managed: true   (podman emerge + subuid; needs root/sudo)
+#   2. llama_swap_install: true    (sci-misc/llama-swap via the stuff overlay)
+#   3. llama_swap_deploy: true     (config + service unit + start)
+#   4. its own llama_swap_models + a vllm_endpoints entry in group_vars
+opencode_managed: false
+nvidia_cdi_managed: false     # AMD box: no nvidia-ctk, no CDI
+llama_swap_install: false
+llama_swap_deploy: false
+system_base_managed: false
