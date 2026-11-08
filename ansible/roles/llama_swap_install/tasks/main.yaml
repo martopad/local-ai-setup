@@ -75,7 +75,38 @@
 # so a strict-accept_keywords box (fresh Gentoo) refuses them unless
 # the arch is accepted per package — the same class of fix as the
 # nftables USE unmask in system_base.
-- name: Gentoo — accept the arch keyword for llama-swap
+#
+# /etc/portage/package.accept_keywords exists in two layouts:
+#  - NEW (both of our boxes): a DIRECTORY of per-package files,
+#    /etc/portage/package.accept_keywords/<category>/<package> with
+#    traditional atom-line content ("<atom> ~amd64").
+#  - legacy: a single file (handled by the lineinfile branch).
+- name: Gentoo — stat the accept_keywords path
+  ansible.builtin.stat:
+    path: /etc/portage/package.accept_keywords
+  register: ls_ak_stat
+  when:
+    - llama_swap_install | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+
+# dir layout, or absent path (fresh box: create the dir layout).
+- name: Gentoo — accept the arch keyword (per-package dir layout)
+  ansible.builtin.copy:
+    dest: "/etc/portage/package.accept_keywords/{{ (llama_swap_pkg | string).split('=')[0].split('::')[0].split('/')[0] }}/{{ (llama_swap_pkg | string).split('=')[0].split('::')[0].split('/')[1] }}"
+    content: "{{ llama_swap_pkg }} ~amd64\n"
+    owner: root
+    group: root
+    mode: "0644"
+    directory_mode: "0755"
+  become: true
+  when:
+    - llama_swap_install | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+    - (ls_ak_stat.stat.isdir | default(false))
+      or not (ls_ak_stat.stat.exists | default(false))
+  tags: [llama-swap-install]
+
+- name: Gentoo — accept the arch keyword (legacy file layout)
   ansible.builtin.lineinfile:
     path: /etc/portage/package.accept_keywords
     line: "{{ llama_swap_pkg }} ~amd64"
@@ -85,6 +116,8 @@
   when:
     - llama_swap_install | default(false)
     - ansible_facts.os_family == 'Gentoo'
+    - ls_ak_stat.stat.exists and not ls_ak_stat.stat.isdir
+  tags: [llama-swap-install]
 
 - name: Gentoo — ensure llama-swap is installed (portage)
   community.general.portage:
