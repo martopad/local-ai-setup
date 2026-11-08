@@ -21,13 +21,14 @@
 # supports check mode fully, so the --check gate works without any
 # changed_when fudging. `select` keeps the packages in the world file;
 # `sync` fetches the repo first (fresh boxes have no portage tree yet).
-# llama-swap is NOT a portage package (upstream ships release binaries,
-# no ebuild/overlay), so it stays with the llama_swap_install role.
-- name: Install podman + nvidia-container-toolkit (Gentoo)
+# The package list is a variable (system_base_packages in group_vars,
+# overridable per host) — e.g. AMD/Strix Halo boxes drop the
+# nvidia-container-toolkit entry. llama-swap is NOT in this list: it is
+# its own role (llama_swap_install; portage sci-misc/llama-swap on
+# Gentoo).
+- name: Install system-base packages (Gentoo)
   community.general.portage:
-    package:
-      - app-containers/podman
-      - app-containers/nvidia-container-toolkit
+    package: "{{ system_base_packages }}"
     state: present
     select: true
     sync: yes

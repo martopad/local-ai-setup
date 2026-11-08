@@ -17,8 +17,14 @@ amd_gtt_limit_pages: 28835840
 #   2. llama_swap_install: true    (sci-misc/llama-swap via the stuff overlay)
 #   3. llama_swap_deploy: true     (config + service unit + start)
 #   4. its own llama_swap_models + a vllm_endpoints entry in group_vars
+# AMD box: no nvidia-ctk, no CDI, and no nvidia-container-toolkit in
+# the emerge list (iGPU works through /dev/kfd + /dev/dri, no toolkit
+# needed).
+nvidia_cdi_managed: false
+system_base_packages:
+  - app-containers/podman
+
 opencode_managed: false
-nvidia_cdi_managed: false     # AMD box: no nvidia-ctk, no CDI
 llama_swap_install: false
 llama_swap_deploy: false
 system_base_managed: false

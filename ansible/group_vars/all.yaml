@@ -46,6 +46,12 @@ llama_swap_release_sha256: "cb1f9a94be05afa129d3c17868f1dd2ca710b919333c7b868239
 # multi-user hosts; override in host_vars).
 subuid_range: "100000-165535"
 
+# system_base's emerge list (the community.general.portage task). AMD
+# boxes override this in host_vars to drop the nvidia entry.
+system_base_packages:
+  - app-containers/podman
+  - app-containers/nvidia-container-toolkit
+
 opencode_default_model: "vllm/qwen3.8-27b-text"
 
 opencode_instructions:
