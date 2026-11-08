@@ -16,11 +16,11 @@
 total_vram_gb: 31.44
 gpu_utilization: 0.90
 
-# Where the opencode client reaches the llama-swap proxy. Loopback:
-# opencode runs on the model box itself, and the systemd unit listens on
-# 127.0.0.1:8000. (The box's LAN addresses are .186 primary / .183
-# secondary; the old LAN-IP baseURL was stale -- restore 0.0.0.0 in the
-# service unit first if another machine ever needs the endpoint.)
+# Where the opencode client reaches the llama-swap proxy. The local
+# opencode (running on the model box) uses loopback; the unit listens
+# on 0.0.0.0:8000, so other machines on the LAN can use
+# http://192.168.0.183:8000/v1 (box addrs: .186 primary, .183
+# secondary) or .186 directly.
 vllm_base_url: "http://127.0.0.1:8000/v1"
 
 opencode_default_model: "vllm/qwen3.8-27b-text"

@@ -35,15 +35,26 @@ Type=simple
 
 # Listens on the port opencode already uses, so no client-side change is needed.
 # Models get ports from startPort in config.yaml instead.
-ExecStart=/usr/bin/llama-swap --config {{ ansible_user_dir }}/.config/llama-swap/config.yaml --listen 127.0.0.1:8000
+# 0.0.0.0: reachable from other LAN machines (the box's LAN addrs are
+# .186/.183). Loopback-only would break remote opencode clients; note
+# this also exposes the unauthenticated model endpoint on the LAN.
+ExecStart=/usr/bin/llama-swap --config {{ ansible_user_dir }}/.config/llama-swap/config.yaml --listen 0.0.0.0:8000
 
-# Give llama-swap time to run cmdStop and let vLLM shut down cleanly.
-TimeoutStopSec=60
+# Give llama-swap time to run cmdStop (podman stop -t 30) and let vLLM
+# shut down cleanly. Two loaded models stopped in series need ~2x30s,
+# and 60s was not enough: the 2026-11-08 restart had systemd SIGKILL
+# llama-swap mid-cleanup and the containers (not in the unit's cgroup)
+# were left orphaned, pinning VRAM and their podman names until killed
+# by hand. 120s covers two serial stops with margin.
+TimeoutStopSec=120
 KillMode=mixed
 
 # Safety net. A vLLM container that outlives llama-swap keeps ~15-17GB of VRAM
-# pinned and the next start will fail to allocate. Cheap to make unconditional.
-ExecStopPost=/bin/sh -c 'podman stop -t 30 --ignore vllm-glm-flash vllm-qwen3-coder vllm-nemotron vllm-gemma4 || true'
+# pinned and the next start will fail (the podman name is still held). The
+# list is derived from target_models so it always covers every model that
+# can exist -- a hard-coded list went stale when five models were added in
+# Nov 2026 and orphaned two containers that had to be killed by hand.
+ExecStopPost=/bin/sh -c 'podman stop -t 30 --ignore {{ target_models | map(attribute='container_name') | join(' ') }} || true'
 
 Restart=on-failure
 RestartSec=5
