@@ -25,7 +25,7 @@
 #
 # Mirrors the working glm-flash.container:
 #   --device nvidia.com/gpu=all  CDI device, from `nvidia-ctk cdi generate`
-#   --group-add keep-groups      Gentitu udev makes /dev/nvidia* 0660 root:video
+#   --group-add keep-groups      Gentoo udev makes /dev/nvidia* 0660 root:video
 #                                and rootless podman drops supplementary
 #                                groups, so without this NVML reports
 #                                "Insufficient Permissions". Requires crun.
