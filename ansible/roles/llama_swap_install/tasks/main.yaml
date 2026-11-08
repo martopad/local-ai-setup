@@ -1,22 +1,83 @@
 ---
-# Install the llama-swap binary from the pinned release.
+# Install llama-swap. Gated per host: `llama_swap_install` (host_vars).
 #
-# Gated per host: `llama_swap_install` (host_vars; false on this box, which
-# keeps the hand-installed binary, true on fresh model boxes).
+# Gentoo: sci-misc/llama-swap from the `stuff` overlay (the ebuild builds
+# from source — that is why installed binaries do not byte-match the
+# GitHub release tarballs). The overlay is cloned if missing and
+# registered in /etc/portage/repos.conf if unregistered; portage itself
+# pulls the ebuild's build dependencies (dev-lang/go). state:present is
+# a no-op while ANY version is installed, so enabling the gate on a box
+# that already has llama-swap is safe; pin a version in llama_swap_pkg
+# to force an upgrade.
 #
-# if-missing ONLY: a binary that is already present (possibly hand-built, as
-# here — the installed one does not byte-match the release tarball) is never
-# touched. Stat-based, so check mode stays clean.
+# Non-Gentoo: pinned release tarball, if-missing ONLY (stat guard; an
+# existing binary is never touched).
 
-- name: Stat target binary
+- name: Gentoo — clone the stuff overlay if missing
+  ansible.builtin.command: git clone {{ llama_swap_overlay_repo }} {{ llama_swap_overlay_dest }}
+  args:
+    creates: "{{ llama_swap_overlay_dest }}/.git"
+  become: true
+  when:
+    - llama_swap_install | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+
+# check_mode: false — the grep is read-only, and letting it run in
+# check mode keeps the .repo write guard honest (otherwise the skipped
+# shell task would make the guard look unregistered and predict a
+# spurious "will create stuff.repo" in the diff review).
+- name: Gentoo — check whether the overlay repo is registered
+  ansible.builtin.shell: >-
+    grep -rlE '^\[{{ llama_swap_overlay_name }}\]' /etc/portage/repos.conf* 2>/dev/null | head -1
+  register: ls_overlay_reg
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  when:
+    - llama_swap_install | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+
+- name: Gentoo — register the overlay in /etc/portage/repos.conf
+  ansible.builtin.copy:
+    dest: /etc/portage/repos.conf/{{ llama_swap_overlay_name }}.repo
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [{{ llama_swap_overlay_name }}]
+      location = {{ llama_swap_overlay_dest }}
+      sync-type = git
+      sync-uri = {{ llama_swap_overlay_repo }}
+  become: true
+  when:
+    - llama_swap_install | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+    - ls_overlay_reg.stdout | length == 0
+
+- name: Gentoo — ensure llama-swap is installed (portage)
+  community.general.portage:
+    package: "{{ llama_swap_pkg }}"
+    state: present
+    select: true
+    sync: yes
+  become: true
+  when:
+    - llama_swap_install | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+
+# --- Non-Gentoo fallback: pinned release binary, if-missing ------------
+- name: Stat target binary (non-Gentoo fallback)
   ansible.builtin.stat:
     path: "{{ llama_swap_bin | default('/usr/bin/llama-swap') }}"
   register: ls_bin_stat
-  when: llama_swap_install | default(false)
-
-- name: "Install llama-swap v{{ llama_swap_version }} (pinned release)"
   when:
     - llama_swap_install | default(false)
+    - ansible_facts.os_family != 'Gentoo'
+
+- name: "Install llama-swap v{{ llama_swap_version }} (pinned release, non-Gentoo)"
+  when:
+    - llama_swap_install | default(false)
+    - ansible_facts.os_family != 'Gentoo'
     - not ls_bin_stat.stat.exists
   block:
     - name: Download pinned llama-swap release tarball
