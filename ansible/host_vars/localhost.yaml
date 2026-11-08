@@ -1,0 +1,9 @@
+---
+# Host-specific keys for this box. host_vars SHADOWS group_vars/all.yaml,
+# so list only keys that genuinely differ — restating an inherited value
+# here is a silent-drift footgun (edit all.yaml, this file wins).
+#
+# Full key contract: ansible/host_vars/vllm-host-example.yaml
+
+opencode_managed: true     # only this box renders ~/.config/opencode/opencode.jsonc
+llama_swap_install: false  # binary is hand-managed here (v265 at /usr/bin/llama-swap)

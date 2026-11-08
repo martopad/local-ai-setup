@@ -1,0 +1,29 @@
+---
+# Contract for a new vLLM model box. Copy to host_vars/<host>.yaml.
+#
+# host_vars SHADOWS group_vars/all.yaml: set only keys that genuinely
+# differ from the shared defaults.
+#
+# Pre-work on the new host (before the first --check --diff):
+#   (a) SSH key from the control box to <user>@<host>
+#   (b) sudo for the become tasks (emerge, /usr/bin write, subuid) —
+#       key-based; never put a password in this repo
+#   (c) caches auto-create on first container run; model weights download
+#       lazily (multi-GB) or rsync from an existing box
+#
+# Keys:
+#total_vram_gb: 24.0        # KV-pool sanity check only; override per host
+#llama_swap_models: []      # this host's model definitions (args/images are
+#                           # GPU-specific); omit to inherit target_models
+#llama_swap_install: true   # install /usr/bin/llama-swap (pinned release)
+#system_base_managed: true  # run system_base tasks (podman + nvidia-container-
+#                           # toolkit emerge, subuid/subgid range)
+#podman_cache_base: "{{ ansible_user_dir }}/.cache"
+#                         # override only if caches live elsewhere
+#gpu_podman_flags: []       # override only if this host's podman/udev differs
+#                           # from the shared flags (the shared set assumes
+#                           # Gentoo udev keep-groups + crun)
+#
+# Also add this host's remote-provider catalog entry to vllm_endpoints in
+# group_vars/all.yaml (provider key + base_url + its model windows) so the
+# opencode box can reach it.

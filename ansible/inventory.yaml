@@ -1,6 +1,12 @@
 all:
   children:
-    local:
+    vllm:
       hosts:
         localhost:
           ansible_connection: local
+        # --- future model boxes (SSH from this host) ---------------------
+        # vllm-b:
+        #   ansible_host: 192.168.0.x
+        #   ansible_user: prod
+        #   # host-specific keys: ansible/host_vars/vllm-b.yaml
+        #   # (contract: ansible/host_vars/vllm-host-example.yaml)

@@ -1,8 +1,9 @@
 ---
-# Deploy llama-swap on local host
-# Uses INI inventory for simplicity
-- name: Deploy llama-swap on local host
-  hosts: local
+# Deploy llama-swap (+ opencode client config) on the vllm model boxes
+# Inventory: ansible/inventory.yaml (group vllm; one entry per model box,
+# host-specific keys in ansible/host_vars/<host>.yaml)
+- name: Deploy llama-swap on vllm model boxes
+  hosts: vllm
   roles:
     - system_base
     - nvidia_cdi
