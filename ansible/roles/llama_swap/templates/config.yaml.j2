@@ -69,6 +69,23 @@ models:
     ttl: {{ model.ttl }}
 {% endfor %}
 {% if llama_swap_routing is defined %}
+{# Fail fast if a routing group references a model that is not enabled:
+   llama-swap refuses to start ("no model config for ...") and crash-loops. #}
+{# jinja2 has no list comprehensions and selectattr can't resolve dict
+   keys — build the list with the append idiom. Active = enabled or
+   keyless (matches the models loop above). #}
+{% set active_ids = [] %}
+{% for m in llama_swap_models | default(target_models) %}
+{% if m.llama_swap_enabled | default(true) %}
+{% set _ = active_ids.append(m.id) %}
+{% endif %}
+{% endfor %}
+{% for group in llama_swap_routing %}
+{% set missing = group.members | reject('in', active_ids) | list %}
+{% if missing | length > 0 %}
+{{ raise('routing group "' ~ group.name ~ '" references models without an enabled config entry: ' ~ missing | join(', ')) }}
+{% endif %}
+{% endfor %}
 routing:
   router:
     use: group
@@ -84,6 +101,8 @@ routing:
           persistent: {{ 'true' if group.persistent else 'false' }}
 {% endif %}
           members:
+{# Rendered as-is: the guard above has already raised if any member
+   lacks an enabled config entry. #}
 {% for member in group.members %}
             - "{{ member }}"
 {% endfor %}
