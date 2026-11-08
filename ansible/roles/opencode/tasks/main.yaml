@@ -8,6 +8,20 @@
     - config
     - opencode
 
+- name: Assert provider key uniqueness for remote opencode endpoints
+  ansible.builtin.assert:
+    that:
+      - ((vllm_endpoints | default([])) | map(attribute='provider') | unique | list | length)
+        == ((vllm_endpoints | default([])) | map(attribute='provider') | list | length)
+      - "'vllm' not in ((vllm_endpoints | default([])) | map(attribute='provider') | list)"
+    fail_msg: >-
+      vllm_endpoints provider keys must be unique and must not collide with
+      the local 'vllm' provider (duplicate top-level JSON keys would
+      silently merge or overwrite)
+  tags:
+    - config
+    - opencode
+
 - name: Deploy opencode configuration from template
   template:
     src: opencode.jsonc.j2

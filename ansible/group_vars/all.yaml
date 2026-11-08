@@ -46,6 +46,24 @@ opencode_plugins:
   - "@cortexkit/opencode-magic-context@latest"
   - "opencode-cache-hit@latest"
 
+# Remote vLLM endpoints for the opencode config: each entry renders a
+# SECOND provider block (the local "vllm" provider is rendered from the
+# model list, never from here). Keys must be unique and never "vllm" —
+# asserted by the opencode role. When a new model box joins, add its
+# entry here (its windows from ITS llama_swap_models/max_model_len).
+vllm_endpoints: []
+#  - provider: "vllm-b"
+#    name: "machine B (llama-swap / vLLM)"
+#    base_url: "http://192.168.0.x:8000/v1"
+#    models:
+#      "some-model-id":
+#        context: 262144        # == that endpoint's --max-model-len
+#        output: 16384
+#        name: "Some Model"
+#        # capabilities: { "reasoning": true }
+#        # variants:
+#        #   - { id: "low", body: { "reasoningEffort": "low" } }
+
 # Standard podman flags for GPU models (everything between
 # "podman run --rm --init" and the image line, excluding the per-model
 # --name flag). A model that needs a different set -- extra --env flags,
