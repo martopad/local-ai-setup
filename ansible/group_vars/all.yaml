@@ -16,9 +16,12 @@
 total_vram_gb: 31.44
 gpu_utilization: 0.90
 
-# Where the opencode client reaches the llama-swap proxy: the host's LAN
-# address, because opencode may run on another machine.
-vllm_base_url: "http://192.168.0.183:8000/v1"
+# Where the opencode client reaches the llama-swap proxy. Loopback:
+# opencode runs on the model box itself, and the systemd unit listens on
+# 127.0.0.1:8000. (The box's LAN addresses are .186 primary / .183
+# secondary; the old LAN-IP baseURL was stale -- restore 0.0.0.0 in the
+# service unit first if another machine ever needs the endpoint.)
+vllm_base_url: "http://127.0.0.1:8000/v1"
 
 opencode_default_model: "vllm/qwen3.8-27b-text"
 
@@ -411,8 +414,11 @@ target_models:
       - "-e VLLM_TARGET_DEVICE=cpu"
       - "-e VLLM_CPU_KVCACHE_SPACE=8"
       - "-e VLLM_CPU_OMP_THREADS_BIND=0-7"
+    # --model flag, not the bare positional: the vllm-openai-cpu
+    # entrypoint rejects the model when --max-model-len precedes it
+    # ("model should be provided as the first positional argument").
     vllm_args:
-      - "Qwen/Qwen3.5-4B"
+      - "--model Qwen/Qwen3.5-4B"
       - "--served-model-name qwen3.5-4b-cpu"
       - "--dtype bfloat16"
       - "--language-model-only"
