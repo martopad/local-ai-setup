@@ -414,11 +414,14 @@ target_models:
       - "-e VLLM_TARGET_DEVICE=cpu"
       - "-e VLLM_CPU_KVCACHE_SPACE=8"
       - "-e VLLM_CPU_OMP_THREADS_BIND=0-7"
-    # --model flag, not the bare positional: the vllm-openai-cpu
-    # entrypoint rejects the model when --max-model-len precedes it
-    # ("model should be provided as the first positional argument").
+    # vLLM 0.33.0's `vllm serve` CLI (the vllm-openai-cpu image)
+    # rejects a model positional unless it is the FIRST argument
+    # ("model should be provided as the first positional argument") and
+    # deprecates the --model flag ("will be removed in a future
+    # version"). So the model is emitted ahead of every option via
+    # positional_model, which the template places before --max-model-len.
+    positional_model: "Qwen/Qwen3.5-4B"
     vllm_args:
-      - "--model Qwen/Qwen3.5-4B"
       - "--served-model-name qwen3.5-4b-cpu"
       - "--dtype bfloat16"
       - "--language-model-only"

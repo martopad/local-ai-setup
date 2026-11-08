@@ -50,6 +50,9 @@ models:
 {% endfor %}
       --name {{ model.container_name }}
       {{ model.vllm_image }}
+{% if model.positional_model is defined %}
+      {{ model.positional_model }}
+{% endif %}
       --max-model-len {{ model.max_model_len }}
 {% for arg in model.vllm_args %}
       {{ arg }}
