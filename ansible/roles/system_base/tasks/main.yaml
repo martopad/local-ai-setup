@@ -16,10 +16,22 @@
   changed_when: false # grep-guarded; assumes idempotent
   when: system_base_managed | default(false)
 
+# The community.general.portage module manages ebuilds properly: it checks
+# the installed DB (state:present is a no-op when already merged) and
+# supports check mode fully, so the --check gate works without any
+# changed_when fudging. `select` keeps the packages in the world file;
+# `sync` fetches the repo first (fresh boxes have no portage tree yet).
+# llama-swap is NOT a portage package (upstream ships release binaries,
+# no ebuild/overlay), so it stays with the llama_swap_install role.
 - name: Install podman + nvidia-container-toolkit (Gentoo)
-  ansible.builtin.command: emerge -av app-containers/podman app-containers/nvidia-container-toolkit
+  community.general.portage:
+    package:
+      - app-containers/podman
+      - app-containers/nvidia-container-toolkit
+    state: present
+    select: true
+    sync: yes
   become: true
-  changed_when: false # emerge is complex/interactive; assume idempotent
   when:
     - system_base_managed | default(false)
     - ansible_facts.os_family == 'Gentoo'
