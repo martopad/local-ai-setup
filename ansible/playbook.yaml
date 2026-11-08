@@ -1,4 +1,6 @@
 ---
+# Deploy llama-swap on local host
+# Uses INI inventory for simplicity
 - name: Deploy llama-swap on local host
   hosts: local
   roles:
