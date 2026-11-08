@@ -57,6 +57,10 @@ models:
 {% for arg in model.vllm_args %}
       {{ arg }}
 {% endfor %}
+{# Deployment-wide: expose prompt_tokens_details (cached_tokens etc.) in
+   the OpenAI usage response so clients can measure prefix-cache hits.
+   vLLM's default is off; prefix caching itself is already enabled. #}
+      --enable-prompt-tokens-details
     cmdStop: "{{ model.cmdStop }}"
     proxy: "{{ model.proxy }}"
     checkEndpoint: {{ model.checkEndpoint }}
