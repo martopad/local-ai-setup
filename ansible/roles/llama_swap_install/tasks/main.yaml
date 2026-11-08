@@ -1,0 +1,54 @@
+---
+# Install the llama-swap binary from the pinned release.
+#
+# Gated per host: `llama_swap_install` (host_vars; false on this box, which
+# keeps the hand-installed binary, true on fresh model boxes).
+#
+# if-missing ONLY: a binary that is already present (possibly hand-built, as
+# here — the installed one does not byte-match the release tarball) is never
+# touched. Stat-based, so check mode stays clean.
+
+- name: Stat target binary
+  ansible.builtin.stat:
+    path: "{{ llama_swap_bin | default('/usr/bin/llama-swap') }}"
+  register: ls_bin_stat
+  when: llama_swap_install | default(false)
+
+- name: "Install llama-swap v{{ llama_swap_version }} (pinned release)"
+  when:
+    - llama_swap_install | default(false)
+    - not ls_bin_stat.stat.exists
+  block:
+    - name: Download pinned llama-swap release tarball
+      ansible.builtin.get_url:
+        url: "https://github.com/mostlygeek/llama-swap/releases/download/v{{ llama_swap_version }}/llama-swap_{{ llama_swap_version }}_linux_amd64.tar.gz"
+        dest: "/tmp/llama-swap_{{ llama_swap_version }}_linux_amd64.tar.gz"
+        mode: "0600"
+        checksum: "sha256:{{ llama_swap_release_sha256 }}"
+      tags: [llama-swap-install]
+
+    - name: Extract into a staging dir
+      ansible.builtin.unarchive:
+        src: "/tmp/llama-swap_{{ llama_swap_version }}_linux_amd64.tar.gz"
+        dest: "/tmp/llama-swap-install-{{ llama_swap_version }}"
+        mode: "0755"
+      tags: [llama-swap-install]
+
+    - name: Install the binary
+      ansible.builtin.copy:
+        src: "/tmp/llama-swap-install-{{ llama_swap_version }}/llama-swap"
+        dest: "{{ llama_swap_bin | default('/usr/bin/llama-swap') }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+      tags: [llama-swap-install]
+
+    - name: Clean up staging files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/tmp/llama-swap_{{ llama_swap_version }}_linux_amd64.tar.gz"
+        - "/tmp/llama-swap-install-{{ llama_swap_version }}"

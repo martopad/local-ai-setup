@@ -23,6 +23,18 @@ gpu_utilization: 0.90
 # secondary) or .186 directly.
 vllm_base_url: "http://127.0.0.1:8000/v1"
 
+# --- llama-swap binary install (llama_swap_install role) ---------------
+# Pinned release for fresh model boxes; the install is host-gated
+# (llama_swap_install in host_vars) and if-missing, so this box keeps
+# its hand-installed v265. sha256 of the official linux_amd64 tarball,
+# per the release's llama-swap_265_checksums.txt.
+llama_swap_version: "265"
+llama_swap_release_sha256: "cb1f9a94be05afa129d3c17868f1dd2ca710b919333c7b868239dc31575dcfa1"
+
+# subuid/subgid range for system_base's usermod (collision risk on
+# multi-user hosts; override in host_vars).
+subuid_range: "100000-165535"
+
 opencode_default_model: "vllm/qwen3.8-27b-text"
 
 opencode_instructions:

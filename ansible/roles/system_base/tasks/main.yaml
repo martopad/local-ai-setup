@@ -1,19 +1,27 @@
-# ---
-# - name: Install podman and nvidia-container-toolkit
-#   command: emerge -av app-containers/podman app-containers/nvidia-container-toolkit
-#   become: true
-#   changed_when: false # emerge is complex, we'll assume it's idempotent if we check later or just skip for now in this prototype
-# 
-# - name: Generate NVIDIA CDI spec
-#   command: nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
-#   become: true
-#   args:
-#     creates: /etc/cdi/nvidia.yaml
-# 
-# - name: Ensure subuid/subgid are configured for the current user
-#   shell: |
-#     if ! grep -q "{{ ansible_user_id }}" /etc/subuid; then
-#       usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "{{ ansible_user_id }}"
-#     fi
-#   become: true
-#   changed_when: false
+---
+# Host bootstrap. Everything here is gated on `system_base_managed`
+# (host_vars; true on fresh model boxes, absent/false here) so the run is
+# inert on boxes that already have a hand-installed base.
+#
+# Pre-work on the new host: podman rootless needs the subuid/subgid ranges
+# below, and the become tasks need key-based sudo for the deploying user.
+
+- name: Ensure subuid/subgid ranges for the podman user
+  ansible.builtin.shell: |
+    grep -q "^{{ ansible_user_id }}:" /etc/subuid || \
+      usermod --add-subuids {{ subuid_range | default('100000-165535') }} \
+               --add-subgids {{ subuid_range | default('100000-165535') }} \
+               "{{ ansible_user_id }}"
+  become: true
+  changed_when: false # grep-guarded; assumes idempotent
+  when: system_base_managed | default(false)
+
+- name: Install podman + nvidia-container-toolkit (Gentoo)
+  ansible.builtin.command: emerge -av app-containers/podman app-containers/nvidia-container-toolkit
+  become: true
+  changed_when: false # emerge is complex/interactive; assume idempotent
+  when:
+    - system_base_managed | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+  # The CDI spec (/etc/cdi/nvidia.yaml) is the nvidia_cdi role's job,
+  # guarded by `creates` there — no duplication here.
