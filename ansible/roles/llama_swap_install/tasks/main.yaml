@@ -3,84 +3,33 @@
 #
 # Gentoo: sci-misc/llama-swap from the `stuff` overlay (the ebuild builds
 # from source — that is why installed binaries do not byte-match the
-# GitHub release tarballs). The overlay is cloned if missing and
-# registered in /etc/portage/repos.conf if unregistered; portage itself
-# pulls the ebuild's build dependencies (dev-lang/go). state:present is
-# a no-op while ANY version is installed, so enabling the gate on a box
-# that already has llama-swap is safe; pin a version in llama_swap_pkg
-# to force an upgrade.
+# GitHub release tarballs). The overlay itself is owned by two roles
+# listed before this one in the playbook (both gated on
+# stuff_overlay_managed): portage_overlay installs the shared tooling
+# (git + app-eselect/eselect-repository) and stuff_overlay registers
+# and syncs the overlay the Gentoo-blessed way via
+# 'eselect repository add'. Portage here pulls the ebuild's build
+# dependencies (dev-lang/go). state:present is a no-op while ANY
+# version is installed, so enabling the gate on a box that already has
+# llama-swap is safe; pin a version in llama_swap_pkg to force an
+# upgrade.
 #
 # Non-Gentoo: pinned release tarball, if-missing ONLY (stat guard; an
 # existing binary is never touched).
-
-- name: Gentoo — clone the stuff overlay if missing
-  ansible.builtin.command: git clone {{ llama_swap_overlay_repo }} {{ llama_swap_overlay_dest }}
-  args:
-    creates: "{{ llama_swap_overlay_dest }}/.git"
-  become: true
-  when:
-    - llama_swap_install | default(false)
-    - ansible_facts.os_family == 'Gentoo'
-
-# check_mode: false — the grep is read-only, and letting it run in
-# check mode keeps the .repo write guard honest (otherwise the skipped
-# shell task would make the guard look unregistered and predict a
-# spurious "will create stuff.repo" in the diff review).
-- name: Gentoo — check whether the overlay repo is registered
-  ansible.builtin.shell: >-
-    grep -rlE '^\[{{ llama_swap_overlay_name }}\]' /etc/portage/repos.conf* 2>/dev/null | head -1
-  register: ls_overlay_reg
-  failed_when: false
-  changed_when: false
-  check_mode: false
-  when:
-    - llama_swap_install | default(false)
-    - ansible_facts.os_family == 'Gentoo'
-
-# Fresh boxes may have no /etc/portage/repos.conf at all (portage
-# auto-discovers /var/db/repos/); create the directory so the .repo
-# file has somewhere to live. On hosts where /etc/portage/repos.conf
-# is a single legacy FILE, this task fails loudly — adjust by hand.
-- name: Gentoo — ensure the /etc/portage/repos.conf directory exists
-  ansible.builtin.file:
-    path: /etc/portage/repos.conf
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  become: true
-  when:
-    - llama_swap_install | default(false)
-    - ansible_facts.os_family == 'Gentoo'
-    - ls_overlay_reg.stdout | length == 0
-
-- name: Gentoo — register the overlay in /etc/portage/repos.conf
-  ansible.builtin.copy:
-    dest: /etc/portage/repos.conf/{{ llama_swap_overlay_name }}.repo
-    owner: root
-    group: root
-    mode: '0644'
-    content: |
-      [{{ llama_swap_overlay_name }}]
-      location = {{ llama_swap_overlay_dest }}
-      sync-type = git
-      sync-uri = {{ llama_swap_overlay_repo }}
-  become: true
-  when:
-    - llama_swap_install | default(false)
-    - ansible_facts.os_family == 'Gentoo'
-    - ls_overlay_reg.stdout | length == 0
 
 # The stuff-overlay ebuilds are arch-specific (KEYWORDS="~amd64 ..."),
 # so a strict-accept_keywords box (fresh Gentoo) refuses them unless
 # the arch is accepted per package — the same class of fix as the
 # nftables USE unmask in system_base.
 #
-# /etc/portage/package.accept_keywords exists in two layouts:
-#  - NEW (both of our boxes): a DIRECTORY of per-package files,
+# /etc/portage/package.accept_keywords exists in two layouts, and the
+# stat below picks the matching branch:
+#  - directory of per-package files — the fresh-box default (m5ai01);
 #    /etc/portage/package.accept_keywords/<category>/<package> with
 #    traditional atom-line content ("<atom> ~amd64").
-#  - legacy: a single file (handled by the lineinfile branch).
+#  - single file — the desktop box, where the split dirs were
+#    manually consolidated into single /etc/portage files on
+#    2026-11-08 (kept that way on purpose; do not re-split).
 - name: Gentoo — stat the accept_keywords path
   ansible.builtin.stat:
     path: /etc/portage/package.accept_keywords

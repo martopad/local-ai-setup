@@ -22,6 +22,12 @@
 #llama_swap_install: false  # true: install llama-swap (portage sci-misc/
 #                           # llama-swap via the stuff overlay on Gentoo,
 #                           # pinned release tarball elsewhere); default false
+#stuff_overlay_managed: false
+#                           # true: keep the 'stuff' overlay registered +
+#                           # synced (portage_overlay installs the shared
+#                           # tooling git + eslect-repository;
+#                           # stuff_overlay does the eselect register/sync).
+#                           # Prerequisite of llama_swap_install on Gentoo.
 #llama_swap_deploy: false   # true: deploy config + service unit + start the
 #                           # llama-swap service; default false until the
 #                           # install step has run on that host

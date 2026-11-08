@@ -7,6 +7,7 @@
 
 opencode_managed: true     # only this box renders ~/.config/opencode/opencode.jsonc
 llama_swap_deploy: true    # this box runs the llama-swap service
+stuff_overlay_managed: true  # keep the stuff overlay registered + synced
 # This box is Gentoo with the stuff overlay registered: llama-swap is
 # portage-managed (sci-misc/llama-swap-265 installed; the role keeps
 # state:present, so it only acts if the package is ever unmerged).

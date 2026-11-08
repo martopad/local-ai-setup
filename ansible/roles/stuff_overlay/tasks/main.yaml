@@ -1,0 +1,45 @@
+---
+# The 'stuff' overlay: ensure it is active, then keep it synced.
+#
+# Depends on the portage_overlay role (tooling: git +
+# app-eselect/eselect-repository), which the playbook lists before
+# this one.
+#
+# The guard is 'emaint sync -r <name>' itself: it SUCCEEDS wherever
+# portage already knows the repo (whether registered through
+# eselect-repository, a hand-written /etc/portage/repos.conf entry,
+# or auto-discovered in /var/db/repos) and fails with "unknown
+# repository" on a box that needs the add. Using eselect's `list`
+# for the guard was a dead end on hosts with broken DNS: the module
+# fetches the shared overlay registry (api.gentoo.org) even for
+# `list -i`, which is exactly what m5ai01's resolver cannot reach.
+#
+# The sync is a real action (git fetch), so it runs outside check
+# mode and never reports changed, keeping the --check gate honest.
+- name: Sync the stuff overlay (also proves it is known to portage)
+  ansible.builtin.command: emaint sync -r {{ llama_swap_overlay_name }}
+  become: true
+  register: so_sync
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  when:
+    - stuff_overlay_managed | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+
+# Runs only when the sync said the repo is unknown. 'eselect
+# repository add' registers the repo AND clones the tree; the
+# already-enabled case is tolerated (a repo known by some other
+# mechanism but not syncable, e.g. a broken sync-uri).
+- name: Add the stuff overlay via eslect-repository
+  ansible.builtin.command: >-
+    eselect repository add {{ llama_swap_overlay_name }} git {{ llama_swap_overlay_repo }}
+  become: true
+  register: so_add
+  when:
+    - stuff_overlay_managed | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+    - so_sync.rc != 0
+  failed_when: >-
+    so_add.rc != 0 and 'already enabled' not in (so_add.stderr | default(''))
+  tags: [stuff-overlay]

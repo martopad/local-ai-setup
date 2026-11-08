@@ -19,18 +19,21 @@ amd_gtt_limit_pages: 28835840
 
 # Deployment gates: flip as the bootstrap proceeds:
 #   1. system_base_managed: true   (podman emerge + subuid; needs root/sudo)
-#   2. llama_swap_install: true    (sci-misc/llama-swap via the stuff overlay)
-#   3. llama_swap_deploy: true     (config + service unit + start)
-#   4. its own llama_swap_models + a vllm_endpoints entry in group_vars
+#   2. stuff_overlay_managed: true (tooling + register/sync the stuff overlay)
+#   3. llama_swap_install: true    (sci-misc/llama-swap from the overlay)
+#   4. llama_swap_deploy: true     (config + service unit + start)
+#   5. its own llama_swap_models + a vllm_endpoints entry in group_vars
 # AMD box: no nvidia-ctk, no CDI, and no nvidia-container-toolkit in
 # the emerge list (iGPU works through /dev/kfd + /dev/dri, no toolkit
 # needed).
 nvidia_cdi_managed: false
 system_base_packages:
   - app-containers/podman
-  - dev-vcs/git          # needed to clone/sync the stuff overlay
+  # git + eslect-repository arrive with the portage_overlay role
+  # (the llama-swap install path), not with the base system
 
 opencode_managed: false
-llama_swap_install: true      # bootstrap step 2: portage install
-llama_swap_deploy: false      # step 3, after the model catalog exists
+stuff_overlay_managed: true # bootstrap step 2: tooling + register/sync overlay
+llama_swap_install: true      # bootstrap step 3: portage install
+llama_swap_deploy: false      # step 4, after the model catalog exists
 system_base_managed: true     # bootstrap step 1: podman emerge + subuid

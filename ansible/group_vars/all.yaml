@@ -33,9 +33,11 @@ vllm_base_url: "http://127.0.0.1:8000/v1"
 # installed; pin a version in llama_swap_pkg to force one (e.g.
 # "sci-misc/llama-swap=270").
 llama_swap_pkg: "sci-misc/llama-swap"
+# The stuff overlay is added by the portage_overlay role via
+# eselect-repository, which clones into its own managed repo dir
+# (there is no hand-chosen destination any more).
 llama_swap_overlay_name: "stuff"
 llama_swap_overlay_repo: "https://github.com/istitov/stuff.git"
-llama_swap_overlay_dest: "/var/db/repos/stuff"
 # Non-Gentoo fallback only: pinned release tarball, if-missing (the stat
 # guard never overwrites an existing binary). sha256 of the official
 # linux_amd64 tarball, per the release's llama-swap_265_checksums.txt.
@@ -47,13 +49,12 @@ llama_swap_release_sha256: "cb1f9a94be05afa129d3c17868f1dd2ca710b919333c7b868239
 subuid_range: "100000-165535"
 
 # system_base's emerge list (the community.general.portage task). AMD
-# boxes override this in host_vars to drop the nvidia entry. git is
-# needed for the stuff overlay clone/sync in the llama_swap_install
-# role (fresh boxes may not have it).
+# boxes override this in host_vars to drop the nvidia entry. git and
+# eselect-repository are the portage_overlay role's job (they come
+# with the llama-swap install path, not the base system).
 system_base_packages:
   - app-containers/podman
   - app-containers/nvidia-container-toolkit
-  - dev-vcs/git
 
 opencode_default_model: "vllm/qwen3.8-27b-text"
 

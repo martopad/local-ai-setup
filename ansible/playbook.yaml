@@ -8,6 +8,13 @@
     - system_base
     - nvidia_cdi
     - amd_gtt
+    # portage_overlay + stuff_overlay are the dependency of
+    # llama_swap_install: the first installs the shared overlay tooling
+    # (git + eslect-repository), the second registers + syncs the
+    # 'stuff' overlay, so the portage task in llama_swap_install can
+    # see it. Both gate on stuff_overlay_managed.
+    - portage_overlay
+    - stuff_overlay
     - llama_swap_install
     - llama_swap
     - role: opencode

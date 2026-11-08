@@ -1,0 +1,21 @@
+---
+# Overlay TOOLING — the shared prerequisite of every overlay role
+# (stuff_overlay today; a new overlay gets its own role, all of them
+# depend on this one). Installs the two packages any 'eselect
+# repository' workflow needs on a fresh box:
+#   dev-vcs/git               — eselect's git sync backend
+#   app-eselect/eselect-repository — the eselect module itself
+#
+# Gated on `stuff_overlay_managed` for now; extend the `when` to OR in
+# a future overlay role's gate when the second one appears.
+- name: Install overlay tooling (git + eselect-repository)
+  community.general.portage:
+    package:
+      - dev-vcs/git
+      - app-eselect/eselect-repository
+    state: present
+    sync: yes
+  become: true
+  when:
+    - stuff_overlay_managed | default(false)
+    - ansible_facts.os_family == 'Gentoo'
