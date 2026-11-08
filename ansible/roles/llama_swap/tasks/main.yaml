@@ -52,6 +52,16 @@
     - config
     - llama-swap-config
 
+# Headless boxes: the user unit only runs while a session is active
+# without linger. `loginctl enable-linger` needs root -> become.
+- name: Enable linger for the llama-swap user (headless boxes)
+  command: loginctl enable-linger {{ ansible_user_id }}
+  become: true
+  changed_when: false
+  when:
+    - llama_swap_deploy | default(false)
+    - llama_swap_linger | default(false)
+
 - name: Ensure llama-swap service is started
   systemd:
     name: llama-swap

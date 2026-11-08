@@ -21,4 +21,8 @@
       options ttm pages_limit={{ amd_gtt_limit_pages }}
       options ttm page_pool_size={{ amd_gtt_limit_pages }}
   become: true
-  when: amd_gtt_limit_pages is defined
+  when:
+    - amd_gtt_limit_pages is defined
+    # Root-side role: managed by a root-connection run (prod has no sudo
+    # on m5ai01 — the routine run is user-scoped only).
+    - amd_gtt_managed | default(false)

@@ -1,8 +1,12 @@
 ---
 # m5ai01 — Strix Halo (Ryzen AI MAX+ 395 / Radeon 8060S, gfx1151),
-# 128 GB unified memory, Gentoo. In the `vllm` inventory group; the
-# gates below keep the vllm-side roles off during the bootstrap phase,
-# so only the amd_gtt role (GTT limit) is active against it right now.
+# 128 GB unified memory, Gentoo. In the `vllm` inventory group.
+#
+# Deployment user: dedicated `prod` account (uid 1000, key-only, wheel
+# + NOPASSWD sudo) — rootless podman + user-unit llama-swap. root.key
+# stays out-of-band. Device access: /dev/kfd + /dev/dri/renderD* are
+# world-accessible; /dev/dri/card0 needs the video group (prod is in
+# video+render).
 #
 # Known host quirk (2026-11-08): the resolver (systemd-resolved)
 # cannot resolve distfiles.gentoo.org (other public domains work),
@@ -17,23 +21,119 @@
 # See the README "Strix Halo (AMD Strix Halo boxes): GFX UMA" section.
 amd_gtt_limit_pages: 28835840
 
-# Deployment gates: flip as the bootstrap proceeds:
-#   1. system_base_managed: true   (podman emerge + subuid; needs root/sudo)
-#   2. stuff_overlay_managed: true (tooling + register/sync the stuff overlay)
-#   3. llama_swap_install: true    (sci-misc/llama-swap from the overlay)
-#   4. llama_swap_deploy: true     (config + service unit + start)
-#   5. its own llama_swap_models + a vllm_endpoints entry in group_vars
-# AMD box: no nvidia-ctk, no CDI, and no nvidia-container-toolkit in
-# the emerge list (iGPU works through /dev/kfd + /dev/dri, no toolkit
-# needed).
+# Privilege model (user decision, 2026-11-08): prod gets NO sudo.
+# Routine playbook runs connect as prod and touch only user-scoped state
+# (llama-swap config/unit/service + podman) — zero become tasks. All
+# root-side roles are gated OFF below; root-level maintenance (package
+# installs, GTT limit changes, overlay sync) is done out-of-band via
+# root.key, or by running this playbook with a root connection:
+#   ansible-playbook -i ansible/inventory.yaml ansible/playbook.yaml \
+#     -l m5ai01 -e ansible_user=root \
+#     -e ansible_private_key_file=/home/martin/.ssh/keys/root.key \
+#     -e system_base_managed=true -e stuff_overlay_managed=true
+#
+# Deployment gates: all bootstrap steps done (podman + llama-swap 270
+# installed, 2026-11-08); the box now serves models.
 nvidia_cdi_managed: false
 system_base_packages:
   - app-containers/podman
+  - app-admin/sudo
   # git + eslect-repository arrive with the portage_overlay role
   # (the llama-swap install path), not with the base system
 
-opencode_managed: false
-stuff_overlay_managed: true # bootstrap step 2: tooling + register/sync overlay
-llama_swap_install: true      # bootstrap step 3: portage install
-llama_swap_deploy: false      # step 4, after the model catalog exists
-system_base_managed: true     # bootstrap step 1: podman emerge + subuid
+# Root-side roles: off for the routine prod run; flip (temporarily) for
+# a root-connection maintenance run, see the block above.
+system_base_managed: false
+stuff_overlay_managed: false
+llama_swap_install: false
+amd_gtt_managed: false     # ttm.conf already deployed; only flip when
+                           # changing amd_gtt_limit_pages (root run)
+
+opencode_managed: false     # no opencode on m5ai01; the desktop's opencode
+                            # reaches it via the vllm-m5 entry in group_vars
+llama_swap_deploy: true     # the routine work: config + service unit + start
+llama_swap_linger: false    # linger was enabled once (root, bootstrap);
+                            # the systemd state persists, no re-run needed
+
+# ----------------------------------------------------------------------------
+# The m5ai01 model catalog (this host's iGPU pool: ~105 GiB at util 0.95).
+# Single-model deployment (2026-11-09, user decision): the 3.8-gen
+# flagship via gufo only. The vLLM/Quark-MXFP4 route for this model OOMs
+# this board (51B PLE table ~102 GB bf16 > the ~105 GiB pool; PLE->NVMe
+# offload exists only in tcclaviger's dual-R9700 patched image).
+# Further vLLM models (e.g. a 3B-active workhorse) can be added back as
+# separate entries — the desktop's shared gpu_podman_flags in
+# group_vars/all.yaml documents the AMD podman flag set (rootless
+# kfd/dri + ROCm env) they need.
+#
+# The gufo entry carries its own podman_flags (its image is bare:
+# Entrypoint+Cmd null, binary at /bin/gufo), so no host-level
+# gpu_podman_flags override is needed on this host.
+
+llama_swap_models:
+  # THE FLAGSHIP via gufo (2026-11-09): Qwen3.8-Flash-Next, newest
+  #    3.8-gen MoE (6B active; beats Qwen3.8-27B on SWE-Pro 62.5 vs 61.7
+  #    and DeepSWE 58.7 vs 42.2). The vLLM/Quark-MXFP4 route for this
+  #    model OOMs this board at the PLE table (see the catalog header);
+  #    this one runs the Unsloth UD-Q4_K_XL GGUF
+  #    (111.3 GB, 4 shards, SHA-256 verified at fetch time) under gufo,
+  #    the Strix-Halo-dedicated engine: mmaps the shards, pages the PLE
+  #    table on demand, MTP speculative decoding (~28 tok/s AR, up to
+  #    ~117 tok/s MTP measured on this machine class). OpenAI-compatible
+  #    server -> the llama-swap proxy path is unchanged.
+  #    Usage accounting is BAKED IN (no vLLM-style opt-in flag): every
+  #    response carries usage.prompt_tokens_details.cached_tokens plus a
+  #    gufo-specific usage.gufo extension (cache ledger, MTP draft
+  #    acceptance, TTFT, tok/s). serve llm's Cache flags
+  #    (--cache-ram-bytes/--cache-disk*) tune the prefix cache, they do
+  #    not gate the usage fields.
+  - id: qwen3.8-flash-gguf
+    name: Qwen3.8-Flash-Next (UD-Q4_K_XL, gufo)
+    vllm_image: ghcr.io/gufo-org/toolboxes/gufo-runtime:latest
+    vllm: false   # non-vLLM engine: template skips the vLLM-only args
+    positional_model: >-
+      serve --host 0.0.0.0 --port 8000 --sessions 1 llm
+      --model /models/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf
+      --context 133760 --max-tokens 8192
+      --served-model-name qwen3.8-flash-gguf
+      --speculative mtp
+      --mtp-model /models/MTP/mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf
+    max_model_len: 133760
+    limit_output: 8192
+    container_name: gufo-qwen3.8-flash-gguf
+    # The gufo image is BARE (Entrypoint + Cmd both null — like kyuz0's
+    # toolbox image): without an explicit entrypoint the post-image args
+    # are exec'd as the command and pid1 dies (ENOENT on "serve"). /bin/gufo
+    # is the engine binary; /models is a read-only BIND mount of prod's home
+    # (gufo only reads; the named-volume trick in the shared flags is for
+    # container writes). --ipc=host per the gufo docs; no torch env vars.
+    podman_flags:
+      - "--entrypoint /bin/gufo"
+      - "--device /dev/kfd"
+      - "--device /dev/dri"
+      - "--group-add keep-groups"
+      - "--security-opt seccomp=unconfined"
+      - "--ipc=host"
+      - "--ulimit memlock=-1"
+      - "-p 127.0.0.1:${PORT}:8000"
+      - "-v /home/prod/models/flash-next:/models:ro"
+      - "-e HSA_OVERRIDE_GFX_VERSION=11.5.1"
+    vllm_args: []
+    cmdStop: podman stop -t 30 --ignore gufo-qwen3.8-flash-gguf
+    proxy: http://127.0.0.1:${PORT}
+    checkEndpoint: /v1/models
+    ttl: 1800
+    opencode_enabled: false
+
+# Routing override: m5ai01 has no CPU historian — one exclusive GPU group.
+llama_swap_routing:
+  - name: gpu
+    comment: "GPU models: one loaded at a time (iGPU pool)"
+    swap: true
+    exclusive: true
+    members:
+      # Only enabled models may appear here (llama-swap refuses to start
+      # when a member has no model config; the template guard enforces
+      # it at deploy time). Single-model catalog (2026-11-09) — when a
+      # further entry is added, re-add its id here.
+      - "qwen3.8-flash-gguf"

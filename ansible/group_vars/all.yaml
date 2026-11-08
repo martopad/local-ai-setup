@@ -72,7 +72,22 @@ opencode_plugins:
 # model list, never from here). Keys must be unique and never "vllm" —
 # asserted by the opencode role. When a new model box joins, add its
 # entry here (its windows from ITS llama_swap_models/max_model_len).
-vllm_endpoints: []
+# m5ai01 (192.168.0.4, Strix Halo/ROCm, user prod, key-only): the
+# remote llama-swap endpoint. Its model catalog + windows live HERE
+# (shared data — this box's opencode renders them; m5ai01's own
+# llama_swap_models in its host_vars defines the serving side).
+vllm_endpoints:
+  - provider: "vllm-m5"
+    name: "m5ai01 (Strix Halo, llama-swap / vLLM ROCm)"
+    base_url: "http://192.168.0.4:8000/v1"
+    models:
+      # Single-model catalog on m5ai01 (2026-11-09, user decision) —
+      # add further models here when their entries land on the host.
+      # context == gufo's --context; output == gufo's --max-tokens.
+      "qwen3.8-flash-gguf":
+        context: 133760
+        output: 8192
+        name: "Qwen3.8-Flash-Next (m5)"
 #  - provider: "vllm-b"
 #    name: "machine B (llama-swap / vLLM)"
 #    base_url: "http://192.168.0.x:8000/v1"

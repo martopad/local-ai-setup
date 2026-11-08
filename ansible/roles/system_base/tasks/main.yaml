@@ -43,6 +43,23 @@
     - system_base_managed | default(false)
     - ansible_facts.os_family == 'Gentoo'
 
+# Key-only service accounts: a NOPASSWD sudoers.d entry so Ansible
+# `become` works from the deploying user without a password (headless
+# boxes have no interactive sudo). Reproducible version of the manual
+# step that set up m5ai01's `prod` account.
+- name: Ensure NOPASSWD sudoers.d entries for the service users
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ item }}"
+    content: "{{ item }} ALL=(ALL) NOPASSWD: ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+  loop: "{{ system_base_sudo_users | default([]) }}"
+  become: true
+  when:
+    - system_base_managed | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+
 - name: Install system-base packages (Gentoo)
   community.general.portage:
     package: "{{ system_base_packages }}"

@@ -5,12 +5,14 @@ all:
         localhost:
           ansible_connection: local
         # Strix Halo box: AMD gfx1151 (Radeon 8060S), 128 GB unified.
-        # Bootstrap phase: deployment gates in host_vars/m5ai01.yaml keep
-        # the vllm-side roles off until podman/llama-swap are installed.
+        # Deployed under the dedicated, key-only `prod` user (rootless
+        # podman + user-unit llama-swap); become tasks (portage, GTT
+        # config) go through prod's NOPASSWD sudo. root.key remains the
+        # out-of-band access (bootstrap, forensics).
         m5ai01:
           ansible_host: 192.168.0.4
-          ansible_user: root
-          ansible_private_key_file: /home/martin/.ssh/keys/root.key
+          ansible_user: prod
+          ansible_private_key_file: /home/martin/.ssh/keys/prod-m5ai01
         # --- further model boxes (SSH from this host) -------------------
         # vllm-c:
         #   ansible_host: 192.168.0.x
