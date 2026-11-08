@@ -22,21 +22,23 @@ target_models:
   # model still reasons on every turn and tool call either way.
   # ---------------------------------------------------------------------------
   - id: "glm-4.7-flash"
-    name: "GLM-4.7-Flash (AWQ 4bit)"
-    vllm_image: "docker.io/vllm/vllm-openai:v0.32.0"
+    name: "GLM-4.7-Flash (NVFP4)"
+    # running this specific model fails some check inside vllm v0.32.0.
+    # As a workaround patch the image.
+    vllm_image: "localhost/vllm-openai:0.32.0-nvfp4-fix"
     weights_gb: 17.5
     kv_cache_per_token_gb: 0.00017241
     limit_output: 32000
     limit_context_slack: 0
     cmd_args:
       - "--name vllm-glm-flash"
-      - "--model cyankiwi/GLM-4.7-Flash-AWQ-4bit"
+      - "--model GadflyII/GLM-4.7-Flash-NVFP4"
       - "--served-model-name glm-4.7-flash"
       - "--tensor-parallel-size 1"
       - "--gpu-memory-utilization 0.90"
       - "--max-num-seqs 2"
       - "--tool-call-parser glm47"
-      - "--reasoning-parser glm45"
+      - "--reasoning-parser glm47"
       - "--enable-auto-tool-choice"
       - "--default-chat-template-kwargs '{\"enable_thinking\":true,\"clear_thinking\":false}'"
       - "--override-generation-config '{\"temperature\":0.7,\"top_p\":1.0,\"repetition_penalty\":1.0}'"
@@ -148,7 +150,7 @@ target_models:
   #     vllm serve --help | grep -A20 'tool-call-parser'
   # then add:
   #   --enable-auto-tool-choice
-  #   --tool-call-parser <value>
+  #   --tool-call-parser gemma4
   #
   # Thinking exists in the open weights but is off by default and is set via chat
   # template kwargs. The key name is unverified -- confirm against the
@@ -186,6 +188,7 @@ target_models:
       - "--reasoning-parser gemma4"
       - "--enable-auto-tool-choice"
       - "--tool-call-parser gemma4"
+      - "--default-chat-template-kwargs '{\"enable_thinking\":true}'"
     cmdStop: "podman stop -t 30 --ignore vllm-gemma4"
     proxy: "http://127.0.0.1:${PORT}"
     checkEndpoint: "/health"
