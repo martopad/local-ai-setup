@@ -38,7 +38,7 @@ Type=simple
 # 0.0.0.0: reachable from other LAN machines (the box's LAN addrs are
 # .186/.183). Loopback-only would break remote opencode clients; note
 # this also exposes the unauthenticated model endpoint on the LAN.
-ExecStart=/usr/bin/llama-swap --config {{ ansible_user_dir }}/.config/llama-swap/config.yaml --listen 0.0.0.0:8000
+ExecStart={{ llama_swap_bin | default('/usr/bin/llama-swap') }} --config {{ ansible_user_dir }}/.config/llama-swap/config.yaml --listen 0.0.0.0:8000
 
 # Give llama-swap time to run cmdStop (podman stop -t 30) and let vLLM
 # shut down cleanly. Two loaded models stopped in series need ~2x30s,
@@ -54,7 +54,7 @@ KillMode=mixed
 # list is derived from target_models so it always covers every model that
 # can exist -- a hard-coded list went stale when five models were added in
 # Nov 2026 and orphaned two containers that had to be killed by hand.
-ExecStopPost=/bin/sh -c 'podman stop -t 30 --ignore {{ target_models | map(attribute='container_name') | join(' ') }} || true'
+ExecStopPost=/bin/sh -c 'podman stop -t 30 --ignore {{ llama_swap_models | default(target_models) | map(attribute='container_name') | join(' ') }} || true'
 
 Restart=on-failure
 RestartSec=5

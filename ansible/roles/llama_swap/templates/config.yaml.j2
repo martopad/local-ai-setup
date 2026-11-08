@@ -40,7 +40,9 @@ logLevel: debug
 startPort: 5800
 
 models:
-{% for model in target_models if model.llama_swap_enabled | default(true) %}
+{# Effective model list: host-specific llama_swap_models (its own GPU's args,
+   images, windows) win; shared target_models is the default. #}
+{% for model in llama_swap_models | default(target_models) if model.llama_swap_enabled | default(true) %}
   "{{ model.id }}":
     name: "{{ model.name }}"
     cmd: >-
