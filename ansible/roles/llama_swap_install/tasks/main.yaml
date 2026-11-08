@@ -71,6 +71,21 @@
     - ansible_facts.os_family == 'Gentoo'
     - ls_overlay_reg.stdout | length == 0
 
+# The stuff-overlay ebuilds are arch-specific (KEYWORDS="~amd64 ..."),
+# so a strict-accept_keywords box (fresh Gentoo) refuses them unless
+# the arch is accepted per package — the same class of fix as the
+# nftables USE unmask in system_base.
+- name: Gentoo — accept the arch keyword for llama-swap
+  ansible.builtin.lineinfile:
+    path: /etc/portage/package.accept_keywords
+    line: "{{ llama_swap_pkg }} ~amd64"
+    create: true
+    mode: "0644"
+  become: true
+  when:
+    - llama_swap_install | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+
 - name: Gentoo — ensure llama-swap is installed (portage)
   community.general.portage:
     package: "{{ llama_swap_pkg }}"
