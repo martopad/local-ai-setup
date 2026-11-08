@@ -151,6 +151,38 @@ milestones and KV cache numbers are in `podman logs` for the model container,
 since llama-swap does not own that output. Container names are `vllm-glm-flash`,
 `vllm-qwen3-coder`, `vllm-nemotron`, `vllm-gemma4`.
 
+## Adding a model box
+
+The repo absorbs further vLLM machines (any VRAM, user, or model set). A new
+box shows up in exactly three places:
+
+1. **Inventory** — a host in the `vllm` group of `ansible/inventory.yaml`
+   (SSH: `ansible_host` + `ansible_user`).
+2. **Host keys** — `ansible/host_vars/<host>.yaml`
+   (contract: `ansible/host_vars/vllm-host-example.yaml`): its
+   `total_vram_gb`, and its own `llama_swap_models` when the GPU or model
+   set differs (args and images are GPU-specific). Fresh hosts also set
+   `llama_swap_install: true` (pinned binary install) and
+   `system_base_managed: true` (podman/subuid bootstrap).
+3. **opencode catalog** — a `vllm_endpoints` entry in
+   `ansible/group_vars/all.yaml` (unique provider key, `base_url`, that
+   endpoint's model windows). Only *remote* endpoints live there — the
+   local provider block is always rendered from the local model list.
+
+Then, per the standing rule: `ansible-playbook -i ansible/inventory.yaml
+ansible/playbook.yaml --check --diff`, review every file diff (the
+llama_swap role writes BOTH the config and the service unit), and only
+then deploy for real.
+
+Notes for the new box:
+- `--max-model-len` (and the opencode `limit.context` that mirrors it) is an
+  explicit per-model value — check the box's VRAM fits each window before
+  copying values over.
+- Podman cache mounts derive from `ansible_user_dir` (override with
+  `podman_cache_base`), so a different deploying user just works.
+- The NVFP4 models need the `localhost/vllm-openai:0.32.0-nvfp4-fix` image
+  built from the repo's `Containerfile` before their entries can start.
+
 ## Configuration notes
 
 **Preserved Thinking** is set server-side via `--default-chat-template-kwargs`
