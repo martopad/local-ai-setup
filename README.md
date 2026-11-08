@@ -184,9 +184,13 @@ change.
 
 ## Tuning
 
-**Context.** `--max-model-len 65536` fits on this card without any KV cache
-quantization — MLA compresses the cache enough that 64k is reachable with
-16-bit KV.
+**Context.** Each model's window is an explicit `max_model_len` in
+`ansible/group_vars/all.yaml` — the single source of truth, consumed by both
+templates: the llama-swap one renders `--max-model-len`, the opencode one
+renders `limit.context`, so the two can never drift apart. The VRAM sizing
+formula is only a pool sanity check; the boot log is the measurement.
+GLM-4.7-Flash's 98304 fits on this card without any KV cache quantization —
+MLA compresses the cache enough that ~96k is reachable with 16-bit KV.
 
 Do **not** add `--kv-cache-dtype fp8`. It fails on consumer Blackwell; see
 Troubleshooting.
@@ -195,16 +199,23 @@ If a given `--max-model-len` does not fit, vLLM refuses to start and reports the
 maximum sequence length it could serve — use that number. The startup log's
 memory profiling line shows where the budget went.
 
-opencode's `limit.context` is deliberately lower than `--max-model-len`
-(49152 vs 65536). Preserved Thinking keeps reasoning blocks in the transcript,
-and opencode's token accounting probably does not count `reasoning_content`, so
-without slack it will undercount and overshoot the server's limit.
+Since the November 2026 opencode schema change, `limit.context` and
+`limit.output` are **independent** parameters, and the convention here is:
+`limit.context` equals the server's total window (the explicit `max_model_len`
+above). The old rule — budget `limit.context + limit.output` under
+`--max-model-len` and keep 4096 of slack for uncounted reasoning tokens
+(`limit_context_slack`) — is retired; that variable no longer exists in the
+templates. The safety still holds, structurally: opencode's compaction trigger
+is `limit.context - max(limit.output, compaction.buffer)`, so a prompt is
+always reserved enough room that prompt + output fits the server window.
 
 Note that the model's architectural maximum (202,752) is far above its
 *effective* range. Community reports put degradation for this model past
-roughly 50k tokens in agentic sessions. Set `--max-model-len` to what VRAM
-allows, but keep opencode's `limit.context` lower so compaction triggers before
-quality drops.
+roughly 50k tokens in agentic sessions. Choose `max_model_len` for what VRAM
+allows *and* what the model is actually good at; if you want compaction to
+trigger before quality drops, the levers are `compaction.buffer` and
+`limit.output` (they sit inside the trigger's `max()`), not shrinking
+`limit.context`, which must equal the window.
 
 **Throughput.** `--speculative-config.method mtp` with
 `num_speculative_tokens 1` is worth trying, but MTP layers may not survive AWQ
@@ -275,10 +286,12 @@ actually binds at 32GB.
 | Nemotron 3 Nano 30B-A3B | 31.6B / ~3.2B | 1M | Only 6 of 29 layers attend; rest is fixed Mamba state | Yes, with token budget |
 | Gemma 4 26B-A4B | 25.2B / 3.8B | 256K | 1024-token sliding window | Yes, off by default |
 
-`--max-model-len` in each unit is a starting point, not a measurement. Only
-GLM's 65536 is empirically confirmed on this hardware. The others are estimated
-from head counts and layer depth; if vLLM refuses to start, step down, and if
-`gpu_cache_usage_perc` stays low under real work, raise it.
+Each model's window is the explicit `max_model_len` in
+`ansible/group_vars/all.yaml` — consumed by both the llama-swap
+`--max-model-len` flag and opencode's `limit.context`, so the two sides can
+never disagree. The VRAM sizing formula only sanity-checks the pool; the
+startup log is the measurement. If vLLM refuses to start, step the value
+down; if `gpu_cache_usage_perc` stays low under real work, raise it.
 
 **Why Nemotron is the interesting one here.** The diagnosed constraint is KV
 cache at long context, and only 6 of its 29 layers use attention. The other 23
@@ -334,39 +347,49 @@ each other, not to the old setup.
 
 ## Why compaction fired every 1-3 steps
 
+Built-in auto-compaction is disabled in the rendered config
+(`compaction.auto: false`) — Magic Context's historian owns context compaction
+now. What follows is background for anyone who re-enables auto-compaction or
+runs without Magic Context.
+
 The window opencode actually works in is not `limit.context`. Before every model
 call it estimates system prompt + messages + tool schemas and compacts if that
 exceeds:
 
     limit.context - max(limit.output, compaction.buffer)
 
-With the original `limit.context: 45056`, `limit.output: 16384` and the default
-`compaction.buffer` of 20000, the trigger sat at **25056** tokens — a little over
-half the configured limit. Two file reads. Meanwhile `keep.tokens` defaults to
-15000, so each compaction retained 15k verbatim and summarized only the ~10k
-above it: constant compaction that reclaimed almost nothing, which is the
-recursive-summary churn that degrades quality fastest.
+The original misconfiguration was `limit.context: 45056`, `limit.output:
+16384` and the default `compaction.buffer` of 20000 — the trigger sat at
+**25056** tokens, a little over half the configured limit. Two file reads.
+Meanwhile `keep.tokens` defaults to 15000, so each compaction retained 15k
+verbatim and summarized only the ~10k above it: constant compaction that
+reclaimed almost nothing, which is the recursive-summary churn that degrades
+quality fastest.
 
 `limit.output` is the strongest lever because it sits inside that `max()`.
-Lowering it from 16384 to 8192 and spending the freed room on context nearly
-doubles the working window at no VRAM cost:
+Since the November 2026 schema change the table's `context` column is the
+server's full window (the explicit `max_model_len` from `group_vars`) instead
+of a budgeted-down value, and `limit.output` is independent of it:
 
-| Model | Server `max-model-len` | context | output | request total | compaction trigger |
-|---|---|---|---|---|---|
-| glm-4.7-flash | 65536 | 53248 | 8192 | 61440 | 45056 |
-| qwen3-coder | 98304 | 86016 | 8192 | 94208 | 77824 |
-| nemotron-nano-3 | 131072 | 118784 | 8192 | 126976 | 110592 |
-| gemma-4-26b-a4b | 98304 | 86016 | 8192 | 94208 | 77824 |
+| Model | window (`max_model_len`) | limit.context | limit.output | trigger (default buffer 20000) |
+|---|---|---|---|---|
+| glm-4.7-flash | 98304 | 98304 | 16384 | 78304 |
+| qwen3-coder | 98305 | 98305 | 8192 | 78305 |
+| nemotron-nano-3 | 131081 | 131081 | 8192 | 111081 |
+| gemma-4-26b | 131072 | 131072 | 16384 | 111072 |
 
-GLM goes from 25056 to 45056 tokens of usable window, a 1.8x gain, and every row
-leaves 4096 tokens of slack under its server ceiling. 8192 output tokens is still
-generous for agentic coding; compaction's own summary call is capped at 4096
-regardless.
+The trigger formula keeps the safety invariant: at the trigger point the
+reserved prompt plus `limit.output` never exceeds the window, since
+`trigger + output = window - max(output, buffer) + output <= window`. 8192
+output tokens is still generous for agentic coding; compaction's own summary
+call is capped at 4096 regardless.
 
-`prune: true` is set because the diagnosed problem is tool output volume
-specifically — it drops old completed tool results rather than summarizing them.
-Note it is documented but reported as unused in some builds' core compaction
-path, so treat it as opportunistic.
+`prune: false` in the rendered config: with built-in compaction disabled, the
+historian owns context compaction and pruning of old tool results is unused.
+(If auto-compaction is re-enabled, `prune: true` is the lever for tool-output
+volume specifically — it drops old completed tool results rather than
+summarizing them; note it is documented but reported as unused in some builds'
+core compaction path, so treat it as opportunistic.)
 
 Two version caveats. The config schema moved around: some builds take
 `compaction.buffer` and `compaction.keep.tokens`, others `compaction.reserved`.
@@ -650,7 +673,8 @@ Not configurable around, and independent of `--max-model-len` — shared memory 
 per-kernel-tile, set by head dimensions and block sizes, not sequence length.
 Lowering the context length will not help.
 
-Drop the flag. It is unnecessary here anyway, since 65536 fits with 16-bit KV.
+Drop the flag. It is unnecessary here anyway, since the explicit per-model
+windows (e.g. GLM-4.7-Flash's 98304) fit with 16-bit KV.
 Alternative MLA attention backends (FlashMLA, CUTLASS MLA) are datacenter-only,
 so Triton MLA is the only path on this card.
 
@@ -670,19 +694,23 @@ and your prompt contains at least K input tokens"** — not a VRAM problem.
 whether or not the model generates that much. The rule is
 `max_model_len >= prompt + max_tokens`.
 
-opencode's `limit.output` becomes that reservation, so it has to be budgeted
-for. Keep `limit.context + limit.output` comfortably below `--max-model-len`;
-opencode may treat `limit.context` as the total window or as the maximum
-prompt, and the settings here (53248 + 8192 against 65536, leaving 4096 spare)
-are safe under either reading.
+Since the November 2026 opencode schema change, `limit.context` and
+`limit.output` are independent parameters: `limit.context` equals the
+server's total window (the explicit `max_model_len` in `group_vars`), and
+`limit.output` is reserved from it by the compaction trigger
+(`limit.context - max(limit.output, compaction.buffer)`), so a request can
+never exceed the window. The old "keep `limit.context + limit.output` below
+`--max-model-len`, minus 4096 of slack" budgeting is retired.
 
 `limit.output` does double duty: besides this reservation it also sets the
-compaction trigger point, which is why it is 8192 rather than 16384. See "Why
-compaction fired every 1-3 steps" above.
+compaction trigger point. See "Why compaction fired every 1-3 steps" above.
 
-Preserved Thinking makes the margin matter more, since reasoning blocks stay in
-the transcript and opencode's accounting probably does not count
-`reasoning_content`.
+Preserved Thinking makes this reservation matter more, since reasoning blocks
+stay in the transcript and opencode's accounting probably does not count
+`reasoning_content` — an undercounted prompt can still push prompt + output
+past the window. The failure mode is a clean "maximum context length" error
+from the server, not corruption; if you see it under long Preserved Thinking
+sessions, raise `compaction.buffer` so more room is reserved earlier.
 
 **A genuine CUDA OOM** means something else took VRAM after vLLM claimed its
 pool at boot — a desktop session, a game, video decode. At 0.90 utilization

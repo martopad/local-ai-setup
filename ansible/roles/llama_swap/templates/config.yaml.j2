@@ -40,24 +40,47 @@ logLevel: debug
 startPort: 5800
 
 models:
-{% for model in target_models %}
+{% for model in target_models if model.llama_swap_enabled | default(true) %}
   "{{ model.id }}":
     name: "{{ model.name }}"
     cmd: >-
       podman run --rm --init
-      --device nvidia.com/gpu=all
-      --group-add keep-groups
-      --ipc=host
-      -p 127.0.0.1:${PORT}:8000
-      -v {{ ansible_user_dir }}/.cache/huggingface:/root/.cache/huggingface:z
-      -v {{ ansible_user_dir }}/.cache/vllm:/root/.cache/vllm:z
-      -v {{ ansible_user_dir }}/.cache/vllm-parsers:/parsers:z
-      {{ model.cmd_args[0] }}
+{% for flag in model.podman_flags | default(gpu_podman_flags) %}
+      {{ flag }}
+{% endfor %}
+      --name {{ model.container_name }}
       {{ model.vllm_image }}
-      --max-model-len {{ ((total_vram_gb * gpu_utilization - model.weights_gb) / model.kv_cache_per_token_gb) | int }}
-      {{ model.cmd_args[1:] | join(' ') }}
+      --max-model-len {{ model.max_model_len }}
+{% for arg in model.vllm_args %}
+      {{ arg }}
+{% endfor %}
     cmdStop: "{{ model.cmdStop }}"
     proxy: "{{ model.proxy }}"
     checkEndpoint: {{ model.checkEndpoint }}
     ttl: {{ model.ttl }}
 {% endfor %}
+
+{% if llama_swap_routing is defined %}
+routing:
+  router:
+    use: group
+    settings:
+      groups:
+
+{% for group in llama_swap_routing %}
+        # {{ group.comment }}
+        {{ group.name }}:
+          swap: {{ 'true' if group.swap else 'false' }}
+          exclusive: {{ 'true' if group.exclusive else 'false' }}
+{% if group.persistent is defined %}
+          persistent: {{ 'true' if group.persistent else 'false' }}
+{% endif %}
+          members:
+{% for member in group.members %}
+            - "{{ member }}"
+{% endfor %}
+{% if not loop.last %}
+
+{% endif %}
+{% endfor %}
+{% endif %}

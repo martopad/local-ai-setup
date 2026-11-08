@@ -1,42 +1,102 @@
-total_vram_gb: 32
+# ---------------------------------------------------------------------------
+# Shared model configuration for the llama-swap and opencode roles.
+#
+# max_model_len is the single source of truth for both generated files:
+# llama-swap's --max-model-len and opencode's limit.context. They are
+# now independent parameters in the opencode schema, and limit.context
+# must equal the server's --max-model-len. Values are declared per model
+# below (native context wherever the VRAM pool allows), not computed.
+#
+# total_vram_gb / gpu_utilization are reference values for the KV pool
+# sanity check only. vLLM budgets against the CUDA-visible total (31.44
+# GiB; nvidia-smi reports 31.8) with ~2.5 GiB reserved for the desktop,
+# so the pool check is (total_vram_gb * gpu_utilization - weights_gb)
+# / kv_cache_per_token_gb >= max_model_len.
+# ---------------------------------------------------------------------------
+total_vram_gb: 31.44
 gpu_utilization: 0.90
 
+# Where the opencode client reaches the llama-swap proxy: the host's LAN
+# address, because opencode may run on another machine.
+vllm_base_url: "http://192.168.0.183:8000/v1"
+
+opencode_default_model: "vllm/qwen3.8-27b-text"
+
+opencode_instructions:
+  - "~/.config/opencode/tool-use-rules.md"
+
+# Active opencode plugins (the billion-context plugin is retired; its
+# config block no longer needs the VRAM arithmetic).
+opencode_plugins:
+  - "@cortexkit/opencode-magic-context@latest"
+  - "opencode-cache-hit@latest"
+
+# Standard podman flags for GPU models (everything between
+# "podman run --rm --init" and the image line, excluding the per-model
+# --name flag). A model that needs a different set -- extra --env flags,
+# the CPU model's own mounts/env -- defines its own podman_flags.
+# Paths are absolute: llama-swap does not expand $HOME.
+gpu_podman_flags:
+  - "--device nvidia.com/gpu=all"
+  - "--group-add keep-groups"
+  - "--ipc=host"
+  - "-p 127.0.0.1:${PORT}:8000"
+  - "-v /home/martin/.cache/huggingface:/root/.cache/huggingface:z"
+  - "-v /home/martin/.cache/vllm:/root/.cache/vllm:z"
+  - "-v /home/martin/.cache/vllm-parsers:/parsers:z"
+
+# llama-swap routing groups: GPU models swap exclusively (one loaded at
+# a time); the CPU model is permanently resident.
+llama_swap_routing:
+  - name: gpu
+    comment: "GPU models: only one loaded at a time"
+    swap: true
+    exclusive: true
+    members:
+      - "qwen3.6-35b-a3b-text"
+      - "qwen3.8-27b-text"
+  - name: cpu
+    comment: "CPU model: permanently resident"
+    swap: false
+    exclusive: false
+    persistent: true
+    members:
+      - "qwen3.5-4b-cpu"
+
 target_models:
-  # limit_output: Max tokens allowed in a single model response.
-  # limit_context_slack: Safety buffer (tokens) between the working context and the hard max_model_len.
+  # limit_output: max tokens requested in a single model response. With
+  # the current opencode schema it is independent of limit.context.
   # ---------------------------------------------------------------------------
-  # GLM-4.7-Flash -- current daily driver. 31.2B total / ~3B active, MLA
-  # attention, 202K native context. The only config here that is empirically
-  # tuned; 65536 is the proven ceiling on 32GB (see README on the fp8 KV dead
-  # end).
+  # GLM-4.7-Flash -- daily driver. 31.2B total / ~3B active, MLA
+  # attention, 202K native context. KV offloading (20 GB CPU) lets the
+  # 98304 window exceed the in-GPU pool.
   #
-  # clear_thinking:false is the default on purpose. Both settings were measured
-  # and compaction frequency was the same either way, so true's only benefit --
-  # slower context growth -- does not materialise, while its cost is real: the
-  # model stops seeing its own prior reasoning. Retained reasoning is also where
-  # it records which approaches it already tried and rejected, which is the first
-  # thing compaction throws away.
-  #
-  # Flip to true only if you catch the model anchoring on a stale plan from an
-  # earlier turn. enable_thinking is a separate switch and is unaffected: the
-  # model still reasons on every turn and tool call either way.
+  # clear_thinking:false is the default on purpose: both settings were
+  # measured and compaction frequency was the same either way, while
+  # clear_thinking's cost is real -- the model stops seeing its own prior
+  # reasoning, where it records which approaches it already tried and
+  # rejected. Flip to true only if you catch it anchoring on a stale
+  # plan. enable_thinking is a separate switch and is unaffected.
   # ---------------------------------------------------------------------------
   - id: "glm-4.7-flash"
     name: "GLM-4.7-Flash (NVFP4)"
-    # running this specific model fails some check inside vllm v0.32.0.
-    # As a workaround patch the image.
+    # vLLM v0.32.0 rejects this checkpoint's WNA16 layout; the patched
+    # image skips the GPTQ validation in moe_wna16.py (see Containerfile).
     vllm_image: "localhost/vllm-openai:0.32.0-nvfp4-fix"
+    max_model_len: 98304
     weights_gb: 17.5
     kv_cache_per_token_gb: 0.00017241
-    limit_output: 32000
-    limit_context_slack: 0
-    cmd_args:
-      - "--name vllm-glm-flash"
+    limit_output: 16384
+    container_name: "vllm-glm-flash"
+    vllm_args:
+      - "--kv-offloading-size 20"
+      - "--kv-offloading-backend native"
       - "--model GadflyII/GLM-4.7-Flash-NVFP4"
       - "--served-model-name glm-4.7-flash"
       - "--tensor-parallel-size 1"
-      - "--gpu-memory-utilization 0.90"
+      - "--gpu-memory-utilization 0.80"
       - "--max-num-seqs 2"
+      - "--max-num-batched-tokens 2048"
       - "--tool-call-parser glm47"
       - "--reasoning-parser glm47"
       - "--enable-auto-tool-choice"
@@ -49,27 +109,24 @@ target_models:
     opencode_enabled: true
 
   # ---------------------------------------------------------------------------
-  # Qwen3-Coder-30B-A3B -- the non-thinking control. 30.5B total / 3.3B active,
-  # GQA with 32 Q heads and 4 KV heads over 48 layers, 262K native. Emits no
-  # reasoning blocks at all, so this is the clean measurement of what thinking
-  # tokens cost. Deliberately has no --reasoning-parser.
+  # Qwen3-Coder-30B-A3B -- the non-thinking control. 30.5B total / 3.3B
+  # active, GQA 32 Q heads / 4 KV heads over 48 layers, 262K native.
+  # Emits no reasoning blocks, so it is the clean measurement of what
+  # thinking tokens cost; deliberately has no --reasoning-parser.
   #
-  # Sampling is Qwen's published recommendation and differs from GLM's: top_p
-  # 0.8, top_k 20, and a non-zero repetition_penalty that GLM explicitly wants
-  # off. It does not inherit GLM's settings.
-  #
-  # 98304 is an estimate, not measured. ~96KB/token of cache on top of ~17GB of
-  # weights. Step down to 65536 if vLLM refuses to start.
+  # Sampling is Qwen's published recommendation: top_p 0.8, top_k 20,
+  # non-zero repetition_penalty (GLM explicitly wants that off). It does
+  # not inherit GLM's settings.
   # ---------------------------------------------------------------------------
   - id: "qwen3-coder"
     name: "Qwen3-Coder-30B-A3B (AWQ, non-thinking)"
     vllm_image: "docker.io/vllm/vllm-openai:v0.32.0"
+    max_model_len: 98305
     weights_gb: 17.2
     kv_cache_per_token_gb: 0.00011800
     limit_output: 8192
-    limit_context_slack: 4096
-    cmd_args:
-      - "--name vllm-qwen3-coder"
+    container_name: "vllm-qwen3-coder"
+    vllm_args:
       - "--model cpatonn/Qwen3-Coder-30B-A3B-Instruct-AWQ"
       - "--served-model-name qwen3-coder"
       - "--tensor-parallel-size 1"
@@ -85,38 +142,33 @@ target_models:
     opencode_enabled: true
 
   # ---------------------------------------------------------------------------
-  # Nemotron 3 Nano 30B-A3B -- the interesting one for the KV problem. Hybrid
-  # Mamba-2/Transformer: 23 Mamba-2 + MoE layers and only 6 attention layers, so
-  # most of the network carries fixed-size recurrent state that does not grow
-  # with sequence length. 1M native context.
+  # Nemotron 3 Nano 30B-A3B -- the interesting one for the KV problem.
+  # Hybrid Mamba-2/Transformer: 23 Mamba-2 + MoE layers, only 6 attention
+  # layers, so most of the network carries fixed-size recurrent state
+  # that does not grow with sequence length. 1M native context.
   #
-  # NVFP4 is the only variant that fits: BF16 is ~60GB and FP8 ~30GB leaves no
-  # room for cache. NVFP4 is Blackwell-native and first-party from NVIDIA, not a
-  # community requant. vLLM detects it as modelopt_fp4, so no --quantization.
+  # NVFP4 is the only variant that fits: BF16 is ~60GB and FP8 ~30GB
+  # leaves no room for cache. vLLM detects it as modelopt_fp4, so no
+  # --quantization flag.
   #
-  # PREREQUISITE -- the reasoning parser ships as a loose file, not inside vLLM:
+  # PREREQUISITE -- the reasoning parser ships as a loose file:
   #   mkdir -p ~/.cache/vllm-parsers && cd ~/.cache/vllm-parsers
   #   wget https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16/resolve/main/nano_v3_reasoning_parser.py
-  # Without it vLLM exits at startup. Use nano_v3, not a DeepSeek parser --
-  # there is a known tool-calling bug with the wrong parser.
+  # Without it vLLM exits at startup. Use nano_v3, not a DeepSeek parser.
   #
-  # Reasoning is switched off per-request with {"enable_thinking": false} rather
-  # than a server flag, so there is no --default-chat-template-kwargs here. The
-  # model also honours a thinking-token budget, a finer-grained version of GLM's
-  # clear_thinking switch.
-  #
-  # 131072 is conservative given how little of this model accumulates KV. Raise
-  # it if reported cache utilisation stays low under real work.
+  # Reasoning is switched off per-request with {"enable_thinking": false}
+  # rather than a server flag, so there is no --default-chat-template-
+  # kwargs here. The model also honours a thinking-token budget.
   # ---------------------------------------------------------------------------
   - id: "nemotron-nano-3"
     name: "Nemotron 3 Nano 30B-A3B (NVFP4, Mamba hybrid)"
     vllm_image: "docker.io/vllm/vllm-openai:v0.32.0"
+    max_model_len: 131081
     weights_gb: 17.0
     kv_cache_per_token_gb: 0.00009002
     limit_output: 8192
-    limit_context_slack: 4096
-    cmd_args:
-      - "--name vllm-nemotron"
+    container_name: "vllm-nemotron"
+    vllm_args:
       - "--model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4"
       - "--served-model-name nemotron-nano-3"
       - "--trust-remote-code"
@@ -136,55 +188,30 @@ target_models:
     opencode_enabled: true
 
   # ---------------------------------------------------------------------------
-  # Gemma 4 26B-A4B -- 25.2B total / 3.8B active, 30 layers, 128 experts with 8
-  # active plus 1 shared, 1024-token sliding window, 256K native, multimodal.
-  # At ~14GB the weights are the smallest of the four, leaving the most room for
-  # cache.
-  #
-  # INCOMPLETE -- tool calling is unresolved. Gemma 4 supports function calling,
-  # but which vLLM tool-call parser handles its format is not confirmed, and a
-  # wrong value fails at startup rather than degrading. Without it opencode's
-  # tool calls will not be parsed, so this entry is chat-only for now. Find the
-  # right value with:
-  #   podman run --rm docker.io/vllm/vllm-openai:v0.29.0 \
-  #     vllm serve --help | grep -A20 'tool-call-parser'
-  # then add:
-  #   --enable-auto-tool-choice
-  #   --tool-call-parser gemma4
-  #
-  # Thinking exists in the open weights but is off by default and is set via chat
-  # template kwargs. The key name is unverified -- confirm against the
-  # checkpoint's chat template before trusting it:
-  #   --default-chat-template-kwargs '{"enable_thinking":true}'
-  #
-  # --dtype float16 and --quantization awq_marlin are both required by the AWQ
-  # checkpoints. An AWQ MoE weight-loading bug (KeyError on packed expert names)
-  # affected older vLLM but predates v0.29.0.
-  #
-  # Alternatives if this checkpoint misbehaves:
-  #   cyankiwi/gemma-4-26B-A4B-it-qat-AWQ-INT4   QAT, best quality retention
-  #   dhruvil237/gemma-4-26B-A4B-it-W4A16        GPTQ compressed-tensors, group 64
-  #     (group 64 is deliberate: some MoE down_proj widths are 704 and 2112,
-  #      not divisible by 128, so a default G128 export is invalid)
-  #
-  # An official MTP draft head (gemma-4-26B-A4B-it-assistant) exists for
-  # speculative decoding. Not enabled: it costs KV headroom, and at least one
-  # report measured it slower than no speculation on this model.
+  # Gemma 4 26B-A4B -- 25.2B total / 3.8B active, 30 layers, 128 experts
+  # (8 active + 1 shared), 1024-token sliding window, 256K native,
+  # multimodal. Now served as the first-party nvidia NVFP4 build with
+  # fp8 KV cache; tool calling via the gemma4 parser. 20 GB of CPU KV
+  # offloading carries the 131072 window beyond the in-GPU pool.
+  # (The earlier AWQ 4bit entry, id gemma-4-26b-a4b, was replaced by
+  # this one; the old name lives on in backups/config.yaml.)
   # ---------------------------------------------------------------------------
-  - id: "gemma-4-26b-a4b"
-    name: "Gemma 4 26B-A4B (AWQ 4bit) -- tool calling unverified"
+  - id: "gemma-4-26b"
+    name: "Gemma 4 26B (NVFP4)"
     vllm_image: "docker.io/vllm/vllm-openai:v0.32.0"
-    weights_gb: 14.5
-    kv_cache_per_token_gb: 0.00014546
-    limit_output: 8192
-    limit_context_slack: 4096
-    cmd_args:
-      - "--name vllm-gemma4"
-      - "--model cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit"
-      - "--served-model-name gemma-4-26b-a4b"
+    max_model_len: 131072
+    limit_output: 16384
+    container_name: "vllm-gemma4"
+    vllm_args:
+      - "--model nvidia/Gemma-4-26B-A4B-NVFP4"
+      - "--served-model-name gemma-4-26b"
       - "--tensor-parallel-size 1"
       - "--gpu-memory-utilization 0.90"
-      - "--max-num-seqs 2"
+      - "--kv-cache-dtype fp8"
+      - "--max-num-seqs 1"
+      - "--max-num-batched-tokens 4096"
+      - "--kv-offloading-size 20"
+      - "--kv-offloading-backend native"
       - "--reasoning-parser gemma4"
       - "--enable-auto-tool-choice"
       - "--tool-call-parser gemma4"
@@ -196,28 +223,233 @@ target_models:
     opencode_enabled: true
 
   # ---------------------------------------------------------------------------
-  # EmbeddingGemma 2 -- The "Librarian". Lightweight multimodal embedding model.
-  # Use-cases:
-  #   - RAG (Retrieval-Augmented Generation): Mapping text/code to vectors.
-  #   - Semantic Search: Finding information based on meaning rather than keywords.
-  #   - Long-term Memory: Storing conversation history in a vector database.
+  # Qwen3.6 35B-A3B (NVFP4), text-only. GDN hybrid: linear-attention
+  # layers, so its KV pool is small relative to its 262144 window.
+  # Reference model for the context budgeting. The pool sanity check is
+  # pending: capture "Available KV cache memory" / "GPU KV cache size"
+  # from its container logs on next boot.
   # ---------------------------------------------------------------------------
-  - id: "embedding-gemma-2"
-    name: "EmbeddingGemma 2 (Text Only)"
-    vllm_image: "docker.io/vllm/vllm-openai:v0.32.0"
-    weights_gb: 0.5
-    kv_cache_per_token_gb: 0.00001
-    limit_output: 1024
-    limit_context_slack: 1024
-    cmd_args:
-      - "--name vllm-embedding-gemma"
-      - "--model google/embeddinggemma-2"
-      - "--served-model-name embedding-gemma-2"
+  - id: "qwen3.6-35b-a3b-text"
+    name: "Qwen3.6 35B-A3B (NVFP4) No Vision Encoder"
+    vllm_image: "localhost/vllm-openai:0.32.0-nvfp4-fix"
+    max_model_len: 262144
+    weights_gb: 22.0
+    # pending the startup log lines (see comment above)
+    kv_cache_per_token_gb: 0.0
+    limit_output: 16384
+    container_name: "vllm-qwen36-35b-a3b-text"
+    podman_flags:
+      - "--device nvidia.com/gpu=all"
+      - "--group-add keep-groups"
+      - "--ipc=host"
+      - "--env VLLM_HAS_FLASHINFER_CUBIN=1"
+      - "-p 127.0.0.1:${PORT}:8000"
+      - "-v /home/martin/.cache/huggingface:/root/.cache/huggingface:z"
+      - "-v /home/martin/.cache/vllm:/root/.cache/vllm:z"
+      - "-v /home/martin/.cache/vllm-parsers:/parsers:z"
+    vllm_args:
+      - "--model nvidia/Qwen3.6-35B-A3B-NVFP4"
+      - "--served-model-name qwen3.6-35b-a3b-text"
       - "--tensor-parallel-size 1"
-      - "--gpu-memory-utilization 0.20"
-      - "--max-model-len 2048"
-    cmdStop: "podman stop -t 30 --ignore vllm-embedding-gemma"
+      - "--trust-remote-code"
+      - "--quantization modelopt_fp4"
+      - "--gpu-memory-utilization 0.90"
+      - "--max-num-seqs 1"
+      - "--kv-cache-dtype fp8"
+      - "--block-size 128"
+      - "--moe-backend marlin"
+      - "--attention-backend flashinfer"
+      - "--attention-config '{\"use_trtllm_attention\":true}'"
+      - "--max-num-batched-tokens 4096"
+      - "--enable-chunked-prefill"
+      - "--async-scheduling"
+      - "--language-model-only"
+      - "--skip-mm-profiling"
+      - "--reasoning-parser qwen3"
+      - "--enable-auto-tool-choice"
+      - "--tool-call-parser qwen3_coder"
+      - "--default-chat-template-kwargs '{\"enable_thinking\":true,\"preserve_thinking\":true}'"
+    cmdStop: "podman stop -t 30 --ignore vllm-qwen36-35b-a3b-text"
     proxy: "http://127.0.0.1:${PORT}"
     checkEndpoint: "/health"
     ttl: 1800
     opencode_enabled: true
+
+  # ---------------------------------------------------------------------------
+  # Qwen3.8 27B (NVFP4 RTX 5090 build), text-only. GDN hybrid; the
+  # current daily driver (serving this conversation).
+  #
+  # Calibrated 2026-11-08 from the vLLM startup log (v0.32.0): CUDA-
+  # visible total 31.44 GiB, free at startup 28.89, weights + non-torch
+  # 17.44 GiB, peak activation 2.21, KV pool 8.66 GiB = 271,183 tokens
+  # >= 262,144 (1.03x headroom). Reasoning effort defaults to xhigh via
+  # the chat template kwargs; the opencode variants below pin it.
+  # ---------------------------------------------------------------------------
+  - id: "qwen3.8-27b-text"
+    name: "Qwen3.8 27B (NVFP4 RTX 5090) Text"
+    opencode_name: "Qwen3.8 27B (NVFP4) No Vision Encoder"
+    vllm_image: "localhost/vllm-openai:0.32.0-nvfp4-fix"
+    max_model_len: 262144
+    weights_gb: 17.4
+    kv_cache_per_token_gb: 0.0000319
+    limit_output: 32768
+    container_name: "vllm-qwen38-27b-text"
+    podman_flags:
+      - "--device nvidia.com/gpu=all"
+      - "--group-add keep-groups"
+      - "--ipc=host"
+      - "--env VLLM_HAS_FLASHINFER_CUBIN=1"
+      - "-p 127.0.0.1:${PORT}:8000"
+      - "-v /home/martin/.cache/huggingface:/root/.cache/huggingface:z"
+      - "-v /home/martin/.cache/vllm:/root/.cache/vllm:z"
+      - "-v /home/martin/.cache/vllm-parsers:/parsers:z"
+    vllm_args:
+      - "--model gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090"
+      - "--served-model-name qwen3.8-27b-text"
+      - "--tensor-parallel-size 1"
+      - "--trust-remote-code"
+      - "--quantization modelopt"
+      - "--gpu-memory-utilization 0.90"
+      - "--max-num-seqs 1"
+      - "--kv-cache-dtype fp8"
+      - "--max-num-batched-tokens 4096"
+      - "--reasoning-parser qwen3"
+      - "--enable-auto-tool-choice"
+      - "--tool-call-parser qwen3_xml"
+      - "--default-chat-template-kwargs '{\"enable_thinking\":true,\"preserve_thinking\":true,\"reasoning_effort\":\"xhigh\"}'"
+    opencode_variants:
+      - id: low
+        body:
+          reasoningEffort: low
+      - id: medium
+        body:
+          reasoningEffort: medium
+      - id: xhigh
+        body:
+          reasoningEffort: xhigh
+    cmdStop: "podman stop -t 30 --ignore vllm-qwen38-27b-text"
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: "/health"
+    ttl: 1800
+    opencode_enabled: true
+
+  # ---------------------------------------------------------------------------
+  # Gemma 4 31B (RedHatAI NVFP4). The -text variant drops the vision
+  # encoder with --language-model-only and widens the window; the full
+  # variant keeps it and caps the window at 65536.
+  # ---------------------------------------------------------------------------
+  - id: "gemma-4-31b-text"
+    name: "Gemma 4 31B (NVFP4) No Vision encoder"
+    opencode_name: "Gemma 4 31B (NVFP4) No Vision Encoder"
+    vllm_image: "localhost/vllm-openai:0.32.0-nvfp4-fix"
+    max_model_len: 150800
+    limit_output: 16384
+    container_name: "vllm-gemma4-31b-text"
+    vllm_args:
+      - "--model RedHatAI/gemma-4-31B-it-NVFP4"
+      - "--served-model-name gemma-4-31b-text"
+      - "--tensor-parallel-size 1"
+      - "--gpu-memory-utilization 0.91"
+      - "--max-num-seqs 1"
+      - "--kv-cache-dtype fp8"
+      - "--max-num-batched-tokens 640"
+      - "--reasoning-parser gemma4"
+      - "--enable-auto-tool-choice"
+      - "--tool-call-parser gemma4"
+      - "--language-model-only"
+      - "--default-chat-template-kwargs '{\"enable_thinking\":true}'"
+    cmdStop: "podman stop -t 30 --ignore vllm-gemma4-31b-text"
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: "/health"
+    ttl: 1800
+    opencode_enabled: true
+
+  - id: "gemma-4-31b"
+    name: "Gemma 4 31B (NVFP4)"
+    vllm_image: "localhost/vllm-openai:0.32.0-nvfp4-fix"
+    max_model_len: 65536
+    limit_output: 16384
+    container_name: "vllm-gemma4-31b"
+    vllm_args:
+      - "--model RedHatAI/gemma-4-31B-it-NVFP4"
+      - "--served-model-name gemma-4-31b"
+      - "--tensor-parallel-size 1"
+      - "--gpu-memory-utilization 0.90"
+      - "--max-num-seqs 1"
+      - "--kv-cache-dtype fp8"
+      - "--max-num-batched-tokens 4096"
+      - "--reasoning-parser gemma4"
+      - "--enable-auto-tool-choice"
+      - "--tool-call-parser gemma4"
+      - "--default-chat-template-kwargs '{\"enable_thinking\":true}'"
+    cmdStop: "podman stop -t 30 --ignore vllm-gemma4-31b"
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: "/health"
+    ttl: 1800
+    opencode_enabled: true
+
+  # ---------------------------------------------------------------------------
+  # Qwen3.5 4B (CPU) -- the "historian" for Magic Context: a small,
+  # permanently-resident model on the CPU cores that summarises session
+  # history while the GPU model handles the live work. See the README
+  # "Running the historian on CPU" section. ttl: 0 = never unloaded.
+  # VLLM_CPU_OMP_THREADS_BIND=0-7 pins the runtime to cores 0-7.
+  # ---------------------------------------------------------------------------
+  - id: "qwen3.5-4b-cpu"
+    name: "Qwen3.5 4B (CPU)"
+    vllm_image: "docker.io/vllm/vllm-openai-cpu:latest-x86_64"
+    max_model_len: 65536
+    limit_output: 16384
+    container_name: "vllm-cpu-historian"
+    podman_flags:
+      - "-p 127.0.0.1:${PORT}:8000"
+      - "--shm-size=1g"
+      - "-v /home/martin/.cache/huggingface:/root/.cache/huggingface:z"
+      - "-v /home/martin/.cache/vllm-cpu:/root/.cache/vllm:z"
+      - "-v /home/martin/.cache/torchinductor-cpu:/tmp/torchinductor_root:z"
+      - "-e TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_root"
+      - "-e VLLM_TARGET_DEVICE=cpu"
+      - "-e VLLM_CPU_KVCACHE_SPACE=8"
+      - "-e VLLM_CPU_OMP_THREADS_BIND=0-7"
+    vllm_args:
+      - "Qwen/Qwen3.5-4B"
+      - "--served-model-name qwen3.5-4b-cpu"
+      - "--dtype bfloat16"
+      - "--language-model-only"
+      - "--reasoning-parser qwen3"
+      - "--default-chat-template-kwargs '{\"enable_thinking\": false}'"
+    opencode_capabilities:
+      tools: true
+      input:
+        - text
+      output:
+        - text
+    cmdStop: "podman stop -t 30 --ignore vllm-cpu-historian"
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: "/health"
+    ttl: 0
+    opencode_enabled: true
+
+  # ---------------------------------------------------------------------------
+  # EmbeddingGemma 2 -- the "Librarian": RAG / semantic search /
+  # long-term memory embeddings. DISABLED 2026-11-08: no longer in use,
+  # and the live llama-swap config does not serve it, so opencode must
+  # not advertise it. Re-enable both flags if embeddings are needed.
+  # ---------------------------------------------------------------------------
+  - id: "embedding-gemma-2"
+    name: "EmbeddingGemma 2 (Text Only)"
+    vllm_image: "docker.io/vllm/vllm-openai:v0.32.0"
+    max_model_len: 2048
+    limit_output: 1024
+    container_name: "vllm-embedding-gemma"
+    vllm_args:
+      - "--model google/embeddinggemma-2"
+      - "--served-model-name embedding-gemma-2"
+      - "--tensor-parallel-size 1"
+      - "--gpu-memory-utilization 0.20"
+    cmdStop: "podman stop -t 30 --ignore vllm-embedding-gemma"
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: "/health"
+    ttl: 1800
+    opencode_enabled: false
+    llama_swap_enabled: false
