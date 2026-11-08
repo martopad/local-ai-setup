@@ -47,10 +47,13 @@ llama_swap_release_sha256: "cb1f9a94be05afa129d3c17868f1dd2ca710b919333c7b868239
 subuid_range: "100000-165535"
 
 # system_base's emerge list (the community.general.portage task). AMD
-# boxes override this in host_vars to drop the nvidia entry.
+# boxes override this in host_vars to drop the nvidia entry. git is
+# needed for the stuff overlay clone/sync in the llama_swap_install
+# role (fresh boxes may not have it).
 system_base_packages:
   - app-containers/podman
   - app-containers/nvidia-container-toolkit
+  - dev-vcs/git
 
 opencode_default_model: "vllm/qwen3.8-27b-text"
 

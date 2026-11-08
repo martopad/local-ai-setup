@@ -28,6 +28,7 @@ amd_gtt_limit_pages: 28835840
 nvidia_cdi_managed: false
 system_base_packages:
   - app-containers/podman
+  - dev-vcs/git          # needed to clone/sync the stuff overlay
 
 opencode_managed: false
 llama_swap_install: true      # bootstrap step 2: portage install
