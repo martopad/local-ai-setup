@@ -3,6 +3,12 @@
 # 128 GB unified memory, Gentoo. In the `vllm` inventory group; the
 # gates below keep the vllm-side roles off during the bootstrap phase,
 # so only the amd_gtt role (GTT limit) is active against it right now.
+#
+# Known host quirk (2026-11-08): the resolver (systemd-resolved)
+# cannot resolve distfiles.gentoo.org (other public domains work),
+# which blocks every emerge that downloads distfiles. Workaround in
+# place: a /etc/hosts entry (138.199.17.162, added by hand). A proper
+# resolver/DNSSEC fix is better; the hosts line can then be dropped.
 
 # iGPU GTT/TTM pool limit, managed by the amd_gtt role
 # (/etc/modprobe.d/ttm.conf). 4 KiB pages: 110 GiB * 1024**3 / 4096.
@@ -11,8 +17,7 @@
 # See the README "Strix Halo (AMD Strix Halo boxes): GFX UMA" section.
 amd_gtt_limit_pages: 28835840
 
-# Deployment gates: OFF while the box is not bootstrapped yet.
-# Flip as the bootstrap proceeds:
+# Deployment gates: flip as the bootstrap proceeds:
 #   1. system_base_managed: true   (podman emerge + subuid; needs root/sudo)
 #   2. llama_swap_install: true    (sci-misc/llama-swap via the stuff overlay)
 #   3. llama_swap_deploy: true     (config + service unit + start)
@@ -25,6 +30,6 @@ system_base_packages:
   - app-containers/podman
 
 opencode_managed: false
-llama_swap_install: false
-llama_swap_deploy: false
-system_base_managed: false
+llama_swap_install: true      # bootstrap step 2: portage install
+llama_swap_deploy: false      # step 3, after the model catalog exists
+system_base_managed: true     # bootstrap step 1: podman emerge + subuid

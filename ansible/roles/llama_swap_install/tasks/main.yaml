@@ -58,7 +58,6 @@
   community.general.portage:
     package: "{{ llama_swap_pkg }}"
     state: present
-    select: true
     sync: yes
   become: true
   when:

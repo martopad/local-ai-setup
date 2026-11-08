@@ -19,18 +19,34 @@
 # The community.general.portage module manages ebuilds properly: it checks
 # the installed DB (state:present is a no-op when already merged) and
 # supports check mode fully, so the --check gate works without any
-# changed_when fudging. `select` keeps the packages in the world file;
-# `sync` fetches the repo first (fresh boxes have no portage tree yet).
+# changed_when fudging. `sync` fetches the repo first (fresh boxes have
+# no portage tree yet). Note: no world selection — the module's `select`
+# option generates `emerge --select`, which this portage (3.0.83) does
+# not support (rc=1 "Packages not installed."); the role re-ensures the
+# packages on every run instead, so the depclean risk is minimal.
 # The package list is a variable (system_base_packages in group_vars,
 # overridable per host) — e.g. AMD/Strix Halo boxes drop the
 # nvidia-container-toolkit entry. llama-swap is NOT in this list: it is
 # its own role (llama_swap_install; portage sci-misc/llama-swap on
 # Gentoo).
+# The container stack (netavark via podman) needs nftables with the
+# json USE flag, which a fresh Gentoo box does not have unmasked;
+# seed the unmask before the emerge so dependency resolution succeeds.
+- name: Ensure nftables json USE for the container stack
+  ansible.builtin.lineinfile:
+    path: /etc/portage/package.use
+    line: "net-firewall/nftables json"
+    create: true
+    mode: "0644"
+  become: true
+  when:
+    - system_base_managed | default(false)
+    - ansible_facts.os_family == 'Gentoo'
+
 - name: Install system-base packages (Gentoo)
   community.general.portage:
     package: "{{ system_base_packages }}"
     state: present
-    select: true
     sync: yes
   become: true
   when:
