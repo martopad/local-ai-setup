@@ -62,6 +62,23 @@
     - llama_swap_deploy | default(false)
     - llama_swap_linger | default(false)
 
+# Boot autostart (headless boxes): render the [Install] section (template,
+# gated on llama_swap_autostart) and enable the user unit. The unit only
+# actually starts at boot if the user has linger (loginctl enable-linger —
+# the llama_swap_linger gate or the bootstrap step); without it the
+# user's systemd instance never runs headless.
+- name: Enable llama-swap at boot (default.target, user scope)
+  systemd:
+    name: llama-swap
+    state: started
+    enabled: yes
+    scope: user
+  become: false
+  when:
+    - llama_swap_deploy | default(false)
+    - llama_swap_autostart | default(false)
+  tags: llama-swap-config
+
 - name: Ensure llama-swap service is started
   systemd:
     name: llama-swap

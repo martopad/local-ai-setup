@@ -44,6 +44,16 @@ llama_swap_overlay_repo: "https://github.com/istitov/stuff.git"
 llama_swap_version: "265"
 llama_swap_release_sha256: "cb1f9a94be05afa129d3c17868f1dd2ca710b919333c7b868239dc31575dcfa1"
 
+# --- llama-swap service autostart (llama_swap role) ---------------------
+# Host-gated via `llama_swap_autostart` in host_vars; default false.
+# false (the desktop): the unit renders without an [Install] section —
+# manual-start only, per the original convention.
+# true (headless boxes, e.g. m5ai01): the unit renders an [Install]
+# section and the role enables it, so boot + linger (loginctl
+# enable-linger — the llama_swap_linger gate or the bootstrap step)
+# brings the service up with no login session.
+llama_swap_autostart: false
+
 # subuid/subgid range for system_base's usermod (collision risk on
 # multi-user hosts; override in host_vars).
 subuid_range: "100000-165535"

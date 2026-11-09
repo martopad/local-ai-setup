@@ -104,21 +104,28 @@ Requesting any of them loads it on demand.
 First boot downloads ~17GB of weights and compiles the model graph, so expect a
 long wait. The `healthCheckTimeout: 1800` config accounts for it.
 
-The service is **manual-start only** — it has no `[Install]` section, so nothing
-brings it up at boot. Start and stop it yourself:
+The service is **manual-start only by default** — the `llama_swap_autostart`
+gate (host_vars, default `false`) leaves the unit without an `[Install]`
+section, so nothing brings it up at boot. Start and stop it yourself:
 
 ```bash
 systemctl --user start llama-swap
 systemctl --user stop llama-swap
 ```
 
-Do **not** run `systemctl --user enable` — the service is manual-start only.
-If you later want autostart, uncomment the `[Install]` section in the
-`llama-swap.service` file, run `daemon-reload`, and add `loginctl enable-linger "$USER"`
-so your user session's systemd instance persists across logout.
+Headless boxes set `llama_swap_autostart: true` in their `host_vars`
+(m5ai01 does): the unit then renders an `[Install]` section and the
+`llama_swap` role enables it, so boot brings the service up through
+`default.target`. That requires the user's linger to be enabled
+(`loginctl enable-linger`) — a user's systemd instance does not exist
+at boot without a login session; m5ai01's `prod` user has linger from
+the bootstrap step.
 
-Do not use `podman stop` either. `Restart=always` will bring the service
-back; systemd owns the lifecycle.
+Do not hand-manage the enabled state: the rendered unit plus the role's
+enable task is the source of truth, and a deploy reconciles it.
+
+Do not use `podman stop` either. `Restart=on-failure` will bring the
+service back; systemd owns the lifecycle.
 
 ## Verify
 

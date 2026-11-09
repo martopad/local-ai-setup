@@ -52,6 +52,9 @@ amd_gtt_managed: false     # ttm.conf already deployed; only flip when
 opencode_managed: false     # no opencode on m5ai01; the desktop's opencode
                             # reaches it via the vllm-m5 entry in group_vars
 llama_swap_deploy: true     # the routine work: config + service unit + start
+llama_swap_autostart: true  # [Install] + enabled: the service comes up at
+                            # boot via default.target (linger already in place
+                            # from the bootstrap step; Linger=yes confirmed)
 llama_swap_linger: false    # linger was enabled once (root, bootstrap);
                             # the systemd state persists, no re-run needed
 

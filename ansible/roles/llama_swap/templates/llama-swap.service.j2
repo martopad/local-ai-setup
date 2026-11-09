@@ -59,6 +59,16 @@ ExecStopPost=/bin/sh -c 'podman stop -t 30 --ignore {{ llama_swap_models | defau
 Restart=on-failure
 RestartSec=5
 
+{% if llama_swap_autostart | default(false) %}
+[Install]
+# Boot autostart for a headless box: the user's systemd instance must
+# exist at boot with no login session, which requires linger for this
+# user (`loginctl enable-linger` — the llama_swap_linger gate / the
+# bootstrap step on this box). default.target is the user-manager's
+# boot anchor.
+WantedBy=default.target
+{% else %}
 # No [Install] section: manual-start only. Enable it with
 # `systemctl --user enable llama-swap` plus `loginctl enable-linger $USER`
 # if you ever want it at boot.
+{% endif %}
