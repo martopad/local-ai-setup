@@ -55,14 +55,23 @@ models:
 {% if model.positional_model is defined %}
       {{ model.positional_model }}
 {% endif %}
+{# vLLM-only args are gated on the per-model engine marker: non-vLLM
+   entries (gufo, llama.cpp) set `vllm: false` and launch their own
+   OpenAI-compatible server via positional_model instead. vLLM models
+   render byte-identically to before. #}
+{% if model.vllm | default(true) %}
       --max-model-len {{ model.max_model_len }}
+{% endif %}
 {% for arg in model.vllm_args %}
       {{ arg }}
 {% endfor %}
-{# Deployment-wide: expose prompt_tokens_details (cached_tokens etc.) in
-   the OpenAI usage response so clients can measure prefix-cache hits.
-   vLLM's default is off; prefix caching itself is already enabled. #}
+{% if model.vllm | default(true) %}
+{# Deployment-wide (vLLM only): expose prompt_tokens_details
+   (cached_tokens etc.) in the OpenAI usage response so clients can
+   measure prefix-cache hits. vLLM's default is off; prefix caching
+   itself is already enabled. #}
       --enable-prompt-tokens-details
+{% endif %}
     cmdStop: "{{ model.cmdStop }}"
     proxy: "{{ model.proxy }}"
     checkEndpoint: {{ model.checkEndpoint }}
