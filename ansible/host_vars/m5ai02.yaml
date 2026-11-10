@@ -1,0 +1,61 @@
+---
+# m5ai02 — Strix Halo (Ryzen AI MAX+ 395 / Radeon 8060S, gfx1151),
+# 128 GB unified memory, Gentoo, 192.168.0.64 (wlp195s0). Same
+# platform/BIOS as m5ai01; kernel 6.18.62-gentoo-dist-bin (m5ai01 has
+# been on 7.3.3-gentoo-dist since 2026-11-10; the two-box TP2 pooling
+# experiment is verified on both kernels). Second box of the pooling
+# pair: USB4 inter-domain link (thunderbolt_net) and, for the two-node
+# TP2 engines, an RDMA rail.
+#
+# Connection: dedicated key-only `prod` account, NO sudo (same
+# privilege model as m5ai01 — user decision 2026-11-08). root.key
+# stays out-of-band. Bootstrap (2026-11-09): prod user +
+# /home/martin/.ssh/keys/prod-m5ai02 created on the box via root.key.
+#
+# GTT/TTM pool (2026-11-09): BIOS UMA frame buffer at 1G minimum
+# (124 GiB host RAM, 1 GiB VRAM BAR — same as m5ai01). The effective
+# 110 GiB pool is pinned by the kernel command line on this box:
+# ttm.pages_limit=28835840 + ttm.page_pool_size=28835840 in
+# /boot/grub/grub.cfg (backup .bak-ttm) — this box's boot-time module
+# loader is the kernel's own symbol autoloader and does NOT apply
+# /etc/modprobe.d options, so the GRUB cmdline is the working mechanism
+# here (m5ai01's boot path does apply ttm.conf). ttm.conf is still
+# rendered for consistency by the amd_gtt role; if amd_gtt_limit_pages
+# is ever changed, the GRUB cmdline on m5ai02 must be updated in the
+# same run (out-of-band, root).
+
+# iGPU GTT/TTM pool limit. 4 KiB pages: 110 GiB * 1024**3 / 4096.
+amd_gtt_limit_pages: 28835840
+
+# Privilege model: same as m5ai01 — the routine run connects as prod
+# and touches only user-scoped state; all root-side roles are gated
+# off. Root-level maintenance (packages, overlays, GTT/GTT-cmdline
+# changes) goes out-of-band via root.key, or as a root-connection run:
+#   ansible-playbook -i ansible/inventory.yaml ansible/playbook.yaml \
+#     -l m5ai02 -e ansible_user=root \
+#     -e ansible_private_key_file=/home/martin/.ssh/keys/root.key \
+#     -e system_base_managed=true -e stuff_overlay_managed=true
+nvidia_cdi_managed: false
+system_base_packages:
+  - app-containers/podman
+  - app-admin/sudo
+  # git + eslect-repository arrive with the portage_overlay role
+  # (the llama-swap install path), not with the base system
+system_base_managed: false
+stuff_overlay_managed: false
+llama_swap_install: false
+amd_gtt_managed: false     # ttm.conf already deployed out-of-band; the
+                           # GRUB cmdline is the effective mechanism here
+                           # (see header). Flip only for a root run that
+                           # also touches the cmdline.
+
+opencode_managed: false    # no opencode on m5ai02; the desktop reaches
+                           # it via a vllm-endpoint entry when it serves
+llama_swap_deploy: false   # no llama-swap yet; bootstrap (podman +
+                           # llama-swap + gufo TP2 rank) happens with the
+                           # two-box pooling work
+# No model catalog yet: the pooling decision (Gufo-TP rank-1 entry vs.
+# strix-halo-engine-lab ranks) lands together with the experiment.
+# When m5ai02 serves a model, also add its vllm_endpoints entry in
+# group_vars/all.yaml so the desktop can reach it.
+llama_swap_models: []

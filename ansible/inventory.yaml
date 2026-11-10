@@ -13,6 +13,17 @@ all:
           ansible_host: 192.168.0.4
           ansible_user: prod
           ansible_private_key_file: /home/martin/.ssh/keys/prod-m5ai01
+        # Second Strix Halo box (BOSGAME BeyondMax, 128 GB, gfx1151, same
+        # platform/BIOS as m5ai01; kernel 6.18.62-gentoo-dist-bin — m5ai01
+        # moved to 7.3.3-gentoo-dist on 2026-11-10, pooling verified on both).
+        # Target of the two-box pooling
+        # experiment (USB4 inter-domain link + TP2 ranks). Dedicated
+        # key-only prod account, no sudo — same privilege model as m5ai01
+        # (root.key stays out-of-band; see host_vars/m5ai02.yaml).
+        m5ai02:
+          ansible_host: 192.168.0.64
+          ansible_user: prod
+          ansible_private_key_file: /home/martin/.ssh/keys/prod-m5ai02
         # --- further model boxes (SSH from this host) -------------------
         # vllm-c:
         #   ansible_host: 192.168.0.x
