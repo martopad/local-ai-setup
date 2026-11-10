@@ -5,6 +5,10 @@ Serves 30B-class coding models as an OpenAI-compatible endpoint on
 
 Target host: Gentoo with systemd, single RTX 5090 (32GB, Blackwell sm_120).
 
+> Related: two-box Strix Halo pooling (Gufo-TP2 over USB4 RDMA,
+> m5ai01 + m5ai02) — see `docs/tp2-pooling.md` and the `gufo_tp2` /
+> `usb4_rdma` roles in `ansible/`.
+
 - **llama-swap** (`llama-swap/`) — request-driven switching. opencode's `model`
   field selects the backend and llama-swap starts it. Use this day to day.
 
