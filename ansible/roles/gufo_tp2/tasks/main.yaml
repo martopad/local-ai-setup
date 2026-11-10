@@ -1,0 +1,341 @@
+---
+# Two-box Gufo-TP2 pooling. Everything is gated on gufo_tp2_managed.
+#
+# Execution ordering (formal contract, see docs/tp2-pooling.md):
+#   system_base (helper caps, subuid, memlock)
+#     -> usb4_rdma (DKMS module, rails, tbv0)          [root]
+#     -> gufo_tp2 scripts + ssh trust                  [prod]  <- this role
+#     -> gufo_tp2 image deploy + model sync             [root]  <- this role, per-run gates
+#     -> llama_swap (renders the cmd_override entry, restarts only if changed)
+# A host with gufo_tp2_managed but a missing/unloaded RDMA module will
+# deploy the scripts fine but FAIL at launch (rails absent) — that is
+# the intended controlled failure, not a silent degraded mode.
+
+# ---------------------------------------------------------------- scripts
+- name: Ensure prod scripts directory
+  ansible.builtin.file:
+    path: /home/prod
+    state: directory
+    mode: "0755"
+  when: gufo_tp2_managed | default(false)
+
+- name: Deploy TP2 launcher scripts for the rank0 host (wrapper + foreground + detached)
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: "/home/prod/{{ item | regex_replace('\\.j2$', '') }}"
+    mode: "0755"
+  loop:
+    - tp2-swap.sh.j2
+    - tp2-rank0-fg.sh.j2
+    - tp2-rank0.sh.j2
+  when:
+    - gufo_tp2_managed | default(false)
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Deploy TP2 launcher script for the rank1 host (worker)
+  ansible.builtin.template:
+    src: tp2-rank1.sh.j2
+    dest: /home/prod/tp2-rank1.sh
+    mode: "0755"
+  when:
+    - gufo_tp2_managed | default(false)
+    - gufo_tp2_rank | default('rank0') == 'rank1'
+
+# ---------------------------------------------------------------- ssh trust
+# The wrapper on rank0 sshes to rank1 as prod (detached rank1 start).
+# The keypair is created ONLY when missing — overwriting a live key
+# breaks the out-of-band trust chain. Bootstrap of the initial
+# authorized_keys line on rank1 is out-of-band (root.key), after which
+# this role keeps it idempotent.
+
+- name: Check for existing prod SSH key
+  ansible.builtin.stat:
+    path: "{{ gufo_tp2_ssh_key }}"
+  register: gufo_tp2_key_stat
+  when:
+    - gufo_tp2_managed | default(false)
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Generate prod SSH key for the rank1 hop (missing only, never overwrite)
+  ansible.builtin.command: >
+    ssh-keygen -t ed25519 -f {{ gufo_tp2_ssh_key }} -N ""
+    -C "prod@{{ inventory_hostname }}-tp2" -q
+  when:
+    - gufo_tp2_managed | default(false)
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+    - not gufo_tp2_key_stat.stat.exists
+  changed_when: true
+
+- name: Ensure .ssh directory permissions
+  ansible.builtin.file:
+    path: /home/prod/.ssh
+    state: directory
+    mode: "0700"
+    owner: prod
+    group: prod
+  when:
+    - gufo_tp2_managed | default(false)
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Derive the public key from the private key when missing
+  # The original keygen on this box never left the .pub file behind;
+  # ssh-keygen -y regenerates it from the private key.
+  ansible.builtin.shell: |
+    set -e
+    ssh-keygen -y -f {{ gufo_tp2_ssh_key }} > {{ gufo_tp2_ssh_key }}.pub
+    chmod 0644 {{ gufo_tp2_ssh_key }}.pub
+  args:
+    creates: "{{ gufo_tp2_ssh_key }}.pub"
+  when:
+    - gufo_tp2_managed | default(false)
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Ensure SSH key file permissions (rank0 host only; the keypair
+       never exists on rank1; the .pub is chmod'd by the derive task)
+  ansible.builtin.file:
+    path: "{{ gufo_tp2_ssh_key }}"
+    state: file
+    mode: "0600"
+    owner: prod
+    group: prod
+  when:
+    - gufo_tp2_managed | default(false)
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Ensure rank1 host key in prod known_hosts (ssh-keyscan)
+  # The known_hosts module's parameter surface shifted in recent
+  # ansible-core (key_options dropped); ssh-keyscan is explicit and
+  # also handles the absent-file case.
+  ansible.builtin.shell: |
+    set -e
+    [ -d "$HOME/.ssh" ] || mkdir -m 0700 "$HOME/.ssh"
+    [ -f "$HOME/.ssh/known_hosts" ] || : > "$HOME/.ssh/known_hosts"
+    chmod 0600 "$HOME/.ssh/known_hosts"
+    BEFORE="$(grep -cF '{{ gufo_tp2_ssh_host }}' "$HOME/.ssh/known_hosts" || true)"
+    grep -qF '{{ gufo_tp2_ssh_host }}' "$HOME/.ssh/known_hosts" || \
+      ssh-keyscan -t ed25519 '{{ gufo_tp2_ssh_host }}' >> "$HOME/.ssh/known_hosts"
+    AFTER="$(grep -cF '{{ gufo_tp2_ssh_host }}' "$HOME/.ssh/known_hosts" || true)"
+    [ "$BEFORE" != "$AFTER" ]
+  environment:
+    HOME: /home/prod
+  register: gufo_tp2_kh
+  changed_when: gufo_tp2_kh.rc == 0
+  failed_when: false
+  when:
+    - gufo_tp2_managed | default(false)
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Verify prod -> rank1 SSH (BatchMode; out-of-band bootstrap if this fails)
+  ansible.builtin.shell: |
+    set -e
+    PUB="$(cat {{ gufo_tp2_ssh_key }}.pub)"
+    ssh -i {{ gufo_tp2_ssh_key }} -o BatchMode=yes -o ConnectTimeout=5 \
+        "{{ gufo_tp2_ssh_user }}@{{ gufo_tp2_ssh_host }}" true
+  environment:
+    HOME: /home/prod
+  register: gufo_tp2_ssh_probe
+  changed_when: false
+  failed_when: false
+  when:
+    - gufo_tp2_managed | default(false)
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Fail with bootstrap instructions if rank1 hop is not trusted yet
+  ansible.builtin.assert:
+    that: gufo_tp2_ssh_probe.rc == 0
+    fail_msg: >
+      prod cannot reach {{ gufo_tp2_ssh_user }}@{{ gufo_tp2_ssh_host }} with
+      {{ gufo_tp2_ssh_key }} (first run, or host key changed). One-time
+      out-of-band bootstrap via the root key:
+        ssh -i root.key root@{{ gufo_tp2_ssh_host }} \
+          "grep -qF '<pub-key>' /home/prod/.ssh/authorized_keys \
+           || echo '<pub-key>' >> /home/prod/.ssh/authorized_keys"
+      where <pub-key> is the content of {{ gufo_tp2_ssh_key }}.pub on
+      the rank0 host — see docs/tp2-pooling.md "first-run bootstrap".
+  when:
+    - gufo_tp2_managed | default(false)
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+    - gufo_tp2_ssh_probe.rc is defined and gufo_tp2_ssh_probe.rc != 0
+
+# ---------------------------------------------------------------- image deploy
+# Root-side, build host (rank0) only, per-run gate gufo_tp2_image_deploy.
+# Digest-gated (tag existence alone is not sufficient: the rootful store
+# on m5ai01 and the prod rootless stores on both hosts are separate;
+# a tag in one is not proof of presence in the others).
+
+- name: Disk preflight on the build host (image store + tar + rootless store copies)
+  ansible.builtin.shell: >
+    df -BG / | awk 'NR==2 {print $4}' | tr -d G
+  register: gufo_tp2_disk_free
+  changed_when: false
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Refuse image deploy without sufficient free disk
+  ansible.builtin.assert:
+    that: gufo_tp2_disk_free.stdout | int >= gufo_tp2_build_disk_free_gib
+    fail_msg: >
+      only {{ gufo_tp2_disk_free.stdout }} GiB free on /, need
+      {{ gufo_tp2_build_disk_free_gib }} (rootful store + save tar + rootless
+      store copies). Free space first (rm old tars / podman image prune).
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Stage the Dockerfile for the next build
+  ansible.builtin.template:
+    src: docker/gufo-tp2.Dockerfile
+    dest: /root/gufo-img/Dockerfile
+    mode: "0644"
+  become: true
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+
+- name: Current rootful image digest
+  ansible.builtin.shell: >
+    podman image inspect {{ gufo_tp2_image }} 2>/dev/null
+    | grep -m1 '"Id"' | cut -d'"' -f4
+  register: gufo_tp2_root_digest
+  changed_when: false
+  failed_when: false
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Build the gufo-tp2 image (rootful, only when digest does not match)
+  ansible.builtin.shell: |
+    set -e
+    mkdir -p /root/gufo-img
+    podman build -f /root/gufo-img/Dockerfile -t {{ gufo_tp2_image }} /root/gufo-img
+  become: true
+  environment:
+    HOME: /root
+  args:
+    executable: /bin/bash
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+    - >
+      gufo_tp2_image_digest | default('') != ''
+      and gufo_tp2_root_digest.stdout | default('') != gufo_tp2_image_digest
+
+- name: Save image tar (rootful, for cross-store/cross-host move)
+  ansible.builtin.shell: |
+    set -e
+    rm -f /root/gufo-img/{{ gufo_tp2_image | regex_replace(':', '-') }}.tar
+    podman save -o /root/gufo-img/{{ gufo_tp2_image | regex_replace(':', '-') }}.tar {{ gufo_tp2_image }}
+  become: true
+  changed_when: true
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Load image into the local prod rootless store
+  ansible.builtin.shell: |
+    set -e
+    install -m 0644 /root/gufo-img/{{ gufo_tp2_image | regex_replace(':', '-') }}.tar /var/tmp/gufo-tp2.tar
+    su - prod -c "podman load -i /var/tmp/gufo-tp2.tar"
+    rm -f /var/tmp/gufo-tp2.tar
+  become: true
+  changed_when: true
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Move image tar to rank1 and load into both its stores
+  ansible.builtin.shell: |
+    set -e
+    TAR="/root/gufo-img/{{ gufo_tp2_image | regex_replace(':', '-') }}.tar"
+    scp -i /root/.ssh/keys/root.key -o StrictHostKeyChecking=accept-new \
+        "$TAR" "root@{{ gufo_tp2_ssh_host }}:/root/gufo-img/"
+    ssh -i /root/.ssh/keys/root.key "root@{{ gufo_tp2_ssh_host }}" '
+      set -e
+      podman load -i /root/gufo-img/{{ gufo_tp2_image | regex_replace(":", "-") }}.tar
+      install -m 0644 /root/gufo-img/{{ gufo_tp2_image | regex_replace(":", "-") }}.tar /var/tmp/gufo-tp2.tar
+      su - prod -c "podman load -i /var/tmp/gufo-tp2.tar"
+      rm -f /var/tmp/gufo-tp2.tar
+      rm -f /root/gufo-img/{{ gufo_tp2_image | regex_replace(":", "-") }}.tar
+    '
+  become: true
+  changed_when: true
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Verify image digest in both prod stores
+  # grep pipeline (no --format, no nested python) so the command
+  # survives Ansible's arg splitter at every quote level.
+  ansible.builtin.shell: |
+    set -e
+    su - prod -c "podman image inspect {{ gufo_tp2_image }} 2>/dev/null" > /tmp/gufo-digest-local.json || true
+    LOCAL="$(grep -m1 sha256: /tmp/gufo-digest-local.json | grep -oE sha256:[a-f0-9]+ | head -1 | sed s/sha256:// || true)"
+    REMOTE="$(ssh -i /root/.ssh/keys/root.key -o BatchMode=yes \
+      "root@{{ gufo_tp2_ssh_host }}" \
+      "su - prod -c 'podman image inspect {{ gufo_tp2_image }} 2>/dev/null' | grep -m1 Id | grep -oE sha256:[a-f0-9]+ | head -1 | sed s/sha256:// || true" 2>/dev/null || true)"
+    rm -f /tmp/gufo-digest-local.json
+    echo "local=${LOCAL:-MISSING} remote=${REMOTE:-MISSING}"
+    [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" = "$REMOTE" ]
+  become: true
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+  changed_when: false
+
+# ---------------------------------------------------------------- model sync
+# Root-side, build host (rank0) only, per-run gate gufo_tp2_model_sync.
+# Controlled failure: refuses to run while TP2 containers are up.
+
+- name: Refuse model sync while TP2 containers are running (either host)
+  # The TP2 containers run under PROD (rootless store); a rootful
+  # `podman ps` sees only the root store and would pass the check
+  # while the pair is live. Probe through `su - prod` on both ends.
+  # name-filter lists only container ids (empty when no match) — no
+  # --format string, so no brace-escaping through Ansible's arg splitter.
+  ansible.builtin.shell: |
+    set -e
+    [ -z "$(su - prod -c "podman ps -q --filter name=gufo-tp2 2>/dev/null" || true)" ]
+    [ -z "$(ssh -i /root/.ssh/keys/root.key -o BatchMode=yes \
+      "root@{{ gufo_tp2_ssh_host }}" "su - prod -c 'podman ps -q --filter name=gufo-tp2 2>/dev/null'" || true)" ]
+  become: true
+  changed_when: false
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_model_sync | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Sync model tree rank0 -> rank1 (incremental, resumable)
+  ansible.builtin.shell: |
+    rsync -a --partial -e "ssh -i /root/.ssh/keys/root.key" \
+      {{ gufo_tp2_model_dir }}/ "root@{{ gufo_tp2_ssh_host }}:{{ gufo_tp2_model_dir }}/"
+  become: true
+  changed_when: true
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_model_sync | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Restore prod ownership of the rank1 model tree
+  ansible.builtin.shell: |
+    ssh -i /root/.ssh/keys/root.key "root@{{ gufo_tp2_ssh_host }}" \
+      "chown -R prod:prod {{ gufo_tp2_model_dir }}"
+  become: true
+  changed_when: false
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_model_sync | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'
+
+- name: Verify model tree checksums on rank1
+  ansible.builtin.shell: |
+    set -e
+    cd {{ gufo_tp2_model_dir }}
+    find . -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/model-manifest.sha256
+    scp -i /root/.ssh/keys/root.key /tmp/model-manifest.sha256 "root@{{ gufo_tp2_ssh_host }}:/tmp/"
+    ssh -i /root/.ssh/keys/root.key "root@{{ gufo_tp2_ssh_host }}" \
+      "cd {{ gufo_tp2_model_dir }} && sha256sum -c /tmp/model-manifest.sha256 && rm -f /tmp/model-manifest.sha256"
+    rm -f /tmp/model-manifest.sha256
+  become: true
+  changed_when: false
+  when:
+    - (gufo_tp2_managed | default(false)) and (gufo_tp2_model_sync | default(false))
+    - gufo_tp2_rank | default('rank0') == 'rank0'

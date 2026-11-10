@@ -1,0 +1,58 @@
+#!/bin/bash
+# llama-swap launcher, containerized Gufo TP2 ({{ gufo_tp2_image }} on
+# this box + {{ gufo_tp2_ssh_host }}).
+#
+#   run PORT [q4] : stop stale pair, start rank1 on {{ gufo_tp2_ssh_host }}
+#                   (background), exec rank0 in foreground on PORT
+#   stop          : stop both ranks (llama-swap cmdStop)
+#
+# Rank0 runs foreground with --rm --init: when the command exits, the
+# container goes with it, so llama-swap's SIGTERM/cmdStop semantics
+# stay clean.
+set -euo pipefail
+exec > >(tee -a "$HOME/tp2-swap.log") 2>&1
+echo "=== tp2-swap $(date '+%F %T') args: $*"
+
+SSH_M502="ssh -i {{ gufo_tp2_ssh_key }} -o BatchMode=yes -o ConnectTimeout=5 {{ gufo_tp2_ssh_user }}@{{ gufo_tp2_ssh_host }}"
+
+stop_all() {
+  echo "tp2-swap: stopping both ranks"
+  podman stop -t 30 --ignore gufo-tp2-rank0 2>/dev/null || true
+  $SSH_M502 "podman stop -t 30 --ignore gufo-tp2-rank1" 2>/dev/null || true
+  # Wait for both ranks to exit so the next pair can bind the bootstrap
+  # ports; otherwise swaps race and the new rank 0 dies with
+  # "bootstrap accept timed out".
+  for _ in $(seq 1 30); do
+    if ! pgrep -x gufo >/dev/null 2>&1 \
+       && ! $SSH_M502 "pgrep -x gufo >/dev/null" 2>/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+  sleep 1
+}
+
+case "${1:?usage: tp2-swap.sh run PORT [q4|q8] | stop}" in
+  stop)
+    stop_all
+    ;;
+  run)
+    PORT="${2:?run PORT missing}"
+    VARIANT="${3:-q4}"
+    case "$VARIANT" in
+      q4) : ;;
+      q8) echo "tp2-swap: q8 weights not on disk yet (UD-Q8_0 not synced)" >&2; exit 2 ;;
+      *)  echo "tp2-swap: unknown variant '$VARIANT' (only q4 for now)" >&2; exit 2 ;;
+    esac
+    stop_all
+    echo "starting rank1 on {{ gufo_tp2_ssh_host }}"
+    $SSH_M502 "nohup /home/prod/tp2-rank1.sh > /home/prod/rank1-start.log 2>&1 < /dev/null & echo RANK1-STARTED"
+    sleep 3
+    echo "exec rank0 on PORT=$PORT (foreground)"
+    exec /home/prod/tp2-rank0-fg.sh "$PORT"
+    ;;
+  *)
+    echo "usage: tp2-swap.sh run PORT [q4|q8] | stop" >&2
+    exit 2
+    ;;
+esac

@@ -72,3 +72,11 @@ llama_swap_deploy: false   # no llama-swap yet; bootstrap (podman +
 # When m5ai02 serves a model, also add its vllm_endpoints entry in
 # group_vars/all.yaml so the desktop can reach it.
 llama_swap_models: []
+
+# Two-box pooling (gufo_tp2 role, 2026-11-10): this box is the rank1
+# worker (no HTTP; dials the rank0 bootstrap on the m5ai01 LAN IP).
+# llama_swap_deploy stays false — it only serves the rank1 script.
+gufo_tp2_managed: true
+gufo_tp2_rank: rank1
+gufo_tp2_image_digest: "3b1cd967de06e82a2867811b570aad1cd57fa8a3a208e5c949cad64b645b6d28"
+gufo_tp2_bootstrap_host: "192.168.0.4"

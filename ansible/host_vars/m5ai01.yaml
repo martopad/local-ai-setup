@@ -180,3 +180,12 @@ llama_swap_routing:
       # it at deploy time).
       - "qwen3.8-flash-gguf"
       - "gufo-qwen3.8-flash-next-tp2-q4"
+
+# Two-box pooling (gufo_tp2 role, 2026-11-10): this box is the rank0
+# host (serves HTTP + runs the llama-swap wrapper + the prod-SSH hop).
+# The USB4 RDMA persistence (usb4_rdma role) is the launch
+# prerequisite, not the file deployment. The image digest pins the
+# 2026-11-10 build (rootful on this box + prod stores on both boxes).
+gufo_tp2_managed: true
+gufo_tp2_rank: rank0
+gufo_tp2_image_digest: "3b1cd967de06e82a2867811b570aad1cd57fa8a3a208e5c949cad64b645b6d28"

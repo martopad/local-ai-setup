@@ -8,6 +8,14 @@
     - system_base
     - nvidia_cdi
     - amd_gtt
+    # Two-box pooling (m5ai01 rank0 + m5ai02 rank1 over USB4 RDMA).
+    # Order contract: this role's scripts land BEFORE llama_swap, so
+    # the rendered cmd_override entry never points at a missing script
+    # (the config entry itself is gated on gufo_tp2_managed in the
+    # host_vars; cutover ordering in docs/tp2-pooling.md). The USB4
+    # RDMA persistence (usb4_rdma role) is a prerequisite for LAUNCH,
+    # not for the role's file deployment.
+    - gufo_tp2
     # portage_overlay + stuff_overlay are the dependency of
     # llama_swap_install: the first installs the shared overlay tooling
     # (git + eslect-repository), the second registers + syncs the

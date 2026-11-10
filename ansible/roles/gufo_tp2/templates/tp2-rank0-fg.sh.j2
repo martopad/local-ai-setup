@@ -1,0 +1,27 @@
+#!/bin/bash
+# Foreground launcher for TP2 rank0 (llama-swap cmd path). Usage: tp2-rank0-fg.sh PORT
+# Container stays in the foreground with --rm --init: container dies
+# when this command dies.
+set -euo pipefail
+PORT="${1:-8000}"
+RDEV=$(ibv_devices | awk '/usb4_rdma/{print $2, $1}' | sort | head -n1 | awk '{print $2}')
+[ -n "$RDEV" ] || { echo "no usb4_rdma device found (rails registered yet?)" >&2; exit 1; }
+echo "rank0 fg rail=$RDEV port=$PORT"
+podman rm -f gufo-tp2-rank0 2>/dev/null || true
+# --net=host: the TCP bootstrap (18515) + control (18516) + HTTP must
+# land on the host LAN; the default slirp netns breaks the bootstrap.
+# --ulimit memlock=-1:-1: no-op when the spawning service's hard cap
+# is already unlimited (PAM login / systemd user manager after
+# DefaultLimitMEMLOCK=infinity); kept so the flag is explicit on any
+# launch path.
+exec podman run --rm --init \
+  --name gufo-tp2-rank0 \
+  --net=host \
+  --device /dev/kfd \
+  --ulimit memlock=-1:-1 \
+  --device /dev/dri/renderD128 \
+  --device /dev/infiniband/uverbs0 \
+  --device /dev/infiniband/uverbs1 \
+  --device /dev/infiniband/rdma_cm \
+  -v {{ gufo_tp2_model_dir }}:/models \
+  {{ gufo_tp2_image }} bash -c "cd /build/gufo && exec ./build/release/gufo serve --host 0.0.0.0 --port $PORT --max-request-bytes 268435456 llm --served-model-name {{ gufo_tp2_served_model_name }} --model {{ gufo_tp2_model_file }} --speculative mtp --mtp-model {{ gufo_tp2_mtp_model }} --mmproj {{ gufo_tp2_mmproj }} --tp-world-size 2 --tp-rank 0 --tp-bootstrap-port {{ gufo_tp2_bootstrap_port }} --tp-control-port {{ gufo_tp2_control_port }} --tp-control-token {{ gufo_tp2_control_token }} --tp-rdma-device '$RDEV' --sessions {{ gufo_tp2_sessions }} --context {{ gufo_tp2_context }} --enable-yarn"

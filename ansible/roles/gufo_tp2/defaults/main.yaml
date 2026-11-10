@@ -1,0 +1,57 @@
+---
+# Two-box Gufo-TP2 pooling (m5ai01 rank0 + m5ai02 rank1 over USB4 RDMA).
+# All keys overridable in host_vars; the gates default false so the role
+# is inert until a host opts in.
+
+# Master gate. True on both Strix boxes; the role only acts there.
+gufo_tp2_managed: false
+# This host's role: rank0 (serves HTTP + the llama-swap wrapper + the
+# prod-SSH hop) or rank1 (the remote worker, no HTTP).
+gufo_tp2_rank: rank0
+
+# Container image (built self-contained — the Dockerfile in
+# files/docker/ compiles gufo + the userspace ibverbs provider inside
+# the image; the host only exposes /dev/kfd, /dev/dri, /dev/infiniband
+# and the DKMS module; see the usb4_rdma role). The digest pins the
+# built artifact: empty = build when the tag is missing, set after a
+# build to make the deploy tasks skip on digest match (tag existence
+# alone is not sufficient — rootful vs rootless stores differ).
+gufo_tp2_image: "gufo-tp2:gfx1151"
+gufo_tp2_image_digest: ""
+
+# Model tree (bind-mounted into the container as /models).
+gufo_tp2_model_dir: /home/prod/models/flash-next
+gufo_tp2_served_model_name: "gufo-qwen3.8-flash-next-tp2-q4"  # rank0 only
+gufo_tp2_model_file: /models/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf
+gufo_tp2_mtp_model: /models/MTP/mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf
+gufo_tp2_mmproj: /models/mmproj-BF16.gguf
+gufo_tp2_sessions: 2
+gufo_tp2_context: 524288
+gufo_tp2_http_port: 8000          # rank0's server port (llama-swap proxies to it)
+
+# TP2 bootstrap/control (rank1 dials back to the rank0 host's LAN IP).
+gufo_tp2_bootstrap_host: "192.168.0.4"
+gufo_tp2_bootstrap_port: 18515
+gufo_tp2_control_port: 18516
+# Shared secret for the TP control channel. Internal repo + private
+# LAN; rotate by changing the var and re-deploying both hosts
+# (regenerate with: openssl rand -hex 16).
+gufo_tp2_control_token: "92ffa404804d336980d95f224d6bd678"
+
+# rank0 -> rank1 SSH (the wrapper starts rank1 detached). The key is
+# created by this role only when missing — never overwritten.
+gufo_tp2_ssh_user: prod
+gufo_tp2_ssh_host: "192.168.0.64"
+gufo_tp2_ssh_key: /home/prod/.ssh/id_ed25519_m5ai02
+
+# Per-run gates (pass -e or host_vars): build/save the image and
+# rsync the model tree. Both are heavyweight and cutover steps.
+gufo_tp2_image_deploy: false
+gufo_tp2_model_sync: false
+
+# Disk preflight: required free space on the build host (image store +
+# save tar + rootless store copy) and on the rank1 host (model tree +
+# rootless store copy). Generous on purpose — both boxes have ~1.7 TiB
+# free as of 2026-11-10.
+gufo_tp2_build_disk_free_gib: 200
+gufo_tp2_rank1_disk_free_gib: 200

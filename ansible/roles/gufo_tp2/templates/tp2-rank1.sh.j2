@@ -1,0 +1,19 @@
+#!/bin/bash
+# rank1 worker launcher (m5ai02): no HTTP, dials the rank0 bootstrap.
+# Usage: tp2-rank1.sh (no args). Started detached by the rank0 wrapper
+# (nohup) or manually during debugging.
+set -euo pipefail
+RDEV=$(ibv_devices | awk "/usb4_rdma/{print \$2, \$1}" | sort | head -n1 | awk "{print \$2}")
+echo "rank1 rail=$RDEV"
+podman rm -f gufo-tp2-rank1 2>/dev/null || true
+podman run -d --name gufo-tp2-rank1 \
+  --net=host \
+  --device /dev/kfd \
+  --ulimit memlock=-1:-1 \
+  --device /dev/dri/renderD128 \
+  --device /dev/infiniband/uverbs0 \
+  --device /dev/infiniband/uverbs1 \
+  --device /dev/infiniband/rdma_cm \
+  -v {{ gufo_tp2_model_dir }}:/models \
+  {{ gufo_tp2_image }} bash -c "cd /build/gufo && exec ./build/release/gufo serve llm --model {{ gufo_tp2_model_file }} --speculative mtp --mtp-model {{ gufo_tp2_mtp_model }} --mmproj {{ gufo_tp2_mmproj }} --tp-world-size 2 --tp-rank 1 --tp-bootstrap-host {{ gufo_tp2_bootstrap_host }} --tp-bootstrap-port {{ gufo_tp2_bootstrap_port }} --tp-control-port {{ gufo_tp2_control_port }} --tp-control-token {{ gufo_tp2_control_token }} --tp-rdma-device '$RDEV' --sessions {{ gufo_tp2_sessions }} --context {{ gufo_tp2_context }} --enable-yarn"
+echo "rank1 launched"
