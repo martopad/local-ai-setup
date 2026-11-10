@@ -26,3 +26,46 @@
     # Root-side role: managed by a root-connection run (prod has no sudo
     # on m5ai01 — the routine run is user-scoped only).
     - (amd_gtt_managed | default(false)) | bool
+
+# ---------------------------------------------------------------- GRUB input side
+# This distro's /usr/sbin/grub-mkconfig is stock grub2: it sources
+# /etc/default/grub and does NOT read /etc/portage/make.conf (verified
+# 2026-11-10 by script read — the GRUB_CMDLINE_LINUX line in make.conf
+# is inert for the tool). Managing the input side here means every
+# future kernel-install regeneration (the gentoo-kernel ebuild's
+# installer runs the same grub-mkconfig) carries the ttm options
+# automatically — the hand-edit era is over.
+# The generated /boot/grub/grub.cfg itself stays unmanaged (regenerated
+# file, boot-critical): the verify task below reports if a regeneration
+# ever loses the options.
+- name: Manage the ttm GRUB_CMDLINE_LINUX input (/etc/default/grub)
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: "^GRUB_CMDLINE_LINUX="
+    line: 'GRUB_CMDLINE_LINUX="ttm.pages_limit={{ amd_gtt_limit_pages }} ttm.page_pool_size={{ amd_gtt_limit_pages }}"'
+    state: present
+    create: true
+    mode: "0644"
+  become: true
+  when:
+    - amd_gtt_limit_pages is defined
+    - (amd_gtt_grub_managed | default(false)) | bool
+
+- name: Verify the generated /boot/grub/grub.cfg carries the ttm options
+  # Report-only: a missing option means a regeneration dropped it —
+  # the fix is `grub-mkconfig -o /boot/grub/grub.cfg` (or the next
+  # kernel install), not a playbook mutation of the generated file.
+  ansible.builtin.shell: |
+    if grep -q "ttm.pages_limit={{ amd_gtt_limit_pages }}" /boot/grub/grub.cfg; then
+      echo "ttm grub options present in the generated config"
+    else
+      echo "ttm options MISSING from /boot/grub/grub.cfg — regenerate:"
+      echo "  grub-mkconfig -o /boot/grub/grub.cfg  (back up first; input side is managed)"
+      exit 1
+    fi
+  register: amd_gtt_grub_verify
+  changed_when: false
+  failed_when: false
+  when:
+    - amd_gtt_limit_pages is defined
+    - (amd_gtt_grub_managed | default(false)) | bool

@@ -58,8 +58,12 @@ subuid_ranges:
 system_base_managed: false
 stuff_overlay_managed: false
 llama_swap_install: false
-amd_gtt_managed: false     # ttm.conf already deployed; only flip when
-                           # changing amd_gtt_limit_pages (root run)
+amd_gtt_managed: true     # root run owns /etc/modprobe.d/ttm.conf (2026-11-10
+                           # cutover: rendered with the role's comment header)
+amd_gtt_grub_managed: true # root run owns the GRUB input side
+                           # (/etc/default/grub GRUB_CMDLINE_LINUX ttm options;
+                           # the generated /boot/grub/grub.cfg stays
+                           # unmanaged, verified by the role's report task)
 
 opencode_managed: false     # no opencode on m5ai01; the desktop's opencode
                             # reaches it via the vllm-m5 entry in group_vars

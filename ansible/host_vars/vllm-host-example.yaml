@@ -38,6 +38,13 @@
 #                           # to /etc/modprobe.d/ttm.conf by the amd_gtt role
 #                           # (AMD official: BIOS UMA carve-out to its minimum,
 #                           # raise GTT instead). Omit on NVIDIA boxes.
+#amd_gtt_managed: false      # root run renders ttm.conf for this host
+#amd_gtt_grub_managed: false # root run owns the GRUB input side: the
+#                           # GRUB_CMDLINE_LINUX ttm options in
+#                           # /etc/default/grub (the distro's grub-mkconfig
+#                           # sources that file, NOT make.conf), plus a
+#                           # report-only check that the generated
+#                           # /boot/grub/grub.cfg still carries the options
 #podman_cache_base: "{{ ansible_user_dir }}/.cache"
 #                         # override only if caches live elsewhere
 #gpu_podman_flags: []       # override only if this host's podman/udev differs

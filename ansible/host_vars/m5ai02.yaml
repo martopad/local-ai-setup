@@ -57,10 +57,13 @@ subuid_ranges:
 system_base_managed: false
 stuff_overlay_managed: false
 llama_swap_install: false
-amd_gtt_managed: false     # ttm.conf already deployed out-of-band; the
-                           # GRUB cmdline is the effective mechanism here
-                           # (see header). Flip only for a root run that
-                           # also touches the cmdline.
+amd_gtt_managed: true     # root run owns /etc/modprobe.d/ttm.conf (the
+                           # out-of-band hand-copy converges to the role render
+                           # 2026-11-10; only the comment header changes)
+amd_gtt_grub_managed: true # root run owns the GRUB input side
+                           # (/etc/default/grub GRUB_CMDLINE_LINUX ttm options;
+                           # the generated /boot/grub/grub.cfg stays
+                           # unmanaged, verified by the role's report task)
 
 opencode_managed: false    # no opencode on m5ai02; the desktop reaches
                            # it via a vllm-endpoint entry when it serves
