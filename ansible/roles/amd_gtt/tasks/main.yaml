@@ -22,6 +22,11 @@
       options ttm page_pool_size={{ amd_gtt_limit_pages }}
   become: true
   when:
+    # Root-connection only: the prod service user has no sudo on the
+    # m5 boxes (user decision, 2026-11-08) — a prod-connection run
+    # skips these; the root cutover run (-e ansible_user=root) owns
+    # them.
+    - (ansible_user | default('prod')) == 'root'
     - amd_gtt_limit_pages is defined
     # Root-side role: managed by a root-connection run (prod has no sudo
     # on m5ai01 — the routine run is user-scoped only).
@@ -48,6 +53,7 @@
     mode: "0644"
   become: true
   when:
+    - (ansible_user | default('prod')) == 'root'
     - amd_gtt_limit_pages is defined
     - (amd_gtt_grub_managed | default(false)) | bool
 

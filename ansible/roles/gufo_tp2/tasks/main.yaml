@@ -190,6 +190,11 @@
     mode: "0644"
   become: true
   when:
+    # Root-connection only: the prod service user has no sudo on the
+    # m5 boxes (user decision, 2026-11-08) — a prod-connection run
+    # skips these; the root cutover run (-e ansible_user=root) owns
+    # them.
+    - (ansible_user | default('prod')) == 'root'
     - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
@@ -216,6 +221,7 @@
   args:
     executable: /bin/bash
   when:
+    - (ansible_user | default('prod')) == 'root'
     - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
     - >
@@ -228,8 +234,8 @@
     rm -f /root/gufo-img/{{ gufo_tp2_image | regex_replace(':', '-') }}.tar
     podman save -o /root/gufo-img/{{ gufo_tp2_image | regex_replace(':', '-') }}.tar {{ gufo_tp2_image }}
   become: true
-  changed_when: true
   when:
+    - (ansible_user | default('prod')) == 'root'
     - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
@@ -240,8 +246,8 @@
     su - prod -c "podman load -i /var/tmp/gufo-tp2.tar"
     rm -f /var/tmp/gufo-tp2.tar
   become: true
-  changed_when: true
   when:
+    - (ansible_user | default('prod')) == 'root'
     - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
@@ -260,8 +266,8 @@
       rm -f /root/gufo-img/{{ gufo_tp2_image | regex_replace(":", "-") }}.tar
     '
   become: true
-  changed_when: true
   when:
+    - (ansible_user | default('prod')) == 'root'
     - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
@@ -280,6 +286,7 @@
     [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" = "$REMOTE" ]
   become: true
   when:
+    - (ansible_user | default('prod')) == 'root'
     - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
   changed_when: false
@@ -300,8 +307,8 @@
     [ -z "$(ssh -i /root/.ssh/keys/root.key -o BatchMode=yes \
       "root@{{ gufo_tp2_ssh_host }}" "su - prod -c 'podman ps -q --filter name=gufo-tp2 2>/dev/null'" || true)" ]
   become: true
-  changed_when: false
   when:
+    - (ansible_user | default('prod')) == 'root'
     - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_model_sync | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
@@ -310,8 +317,8 @@
     rsync -a --partial -e "ssh -i /root/.ssh/keys/root.key" \
       {{ gufo_tp2_model_dir }}/ "root@{{ gufo_tp2_ssh_host }}:{{ gufo_tp2_model_dir }}/"
   become: true
-  changed_when: true
   when:
+    - (ansible_user | default('prod')) == 'root'
     - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_model_sync | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
@@ -320,8 +327,8 @@
     ssh -i /root/.ssh/keys/root.key "root@{{ gufo_tp2_ssh_host }}" \
       "chown -R prod:prod {{ gufo_tp2_model_dir }}"
   become: true
-  changed_when: false
   when:
+    - (ansible_user | default('prod')) == 'root'
     - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_model_sync | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
@@ -335,7 +342,7 @@
       "cd {{ gufo_tp2_model_dir }} && sha256sum -c /tmp/model-manifest.sha256 && rm -f /tmp/model-manifest.sha256"
     rm -f /tmp/model-manifest.sha256
   become: true
-  changed_when: false
   when:
+    - (ansible_user | default('prod')) == 'root'
     - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_model_sync | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
