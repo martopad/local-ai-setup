@@ -128,5 +128,38 @@
   when:
     - (system_base_managed | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'
-  # The CDI spec (/etc/cdi/nvidia.yaml) is the nvidia_cdi role's job,
-  # guarded by `creates` there — no duplication here.
+
+# /etc/portage/package.accept_keywords on this distro ships as a
+# DIRECTORY of per-category/per-package files; the desktop and the
+# single-file tooling (llama_swap_install's lineinfile) use the
+# single-file form. Verified on m5ai01 (2026-11-10/11) that the file
+# form is fully behavior-identical on this Portage: emergence parity
+# for every accepted package + a drop/restore round-trip proving the
+# file is actively read (drop a line -> "~amd64 keyword" mask,
+# restore -> resolves). Consolidate once; the old directory stays as
+# .dir.bak until a later pass removes it. No-op when the path is
+# already a file or absent.
+- name: Normalize the portage accept-keywords layout to the single-file form
+  ansible.builtin.shell: |
+    set -e
+    cd /etc/portage
+    if [ -d package.accept_keywords ] && [ ! -L package.accept_keywords ]; then
+      mv package.accept_keywords package.accept_keywords.dir.bak
+      : > package.accept_keywords
+      # per-file content is already valid single-file line form
+      # ("<category>/<package> ~amd64")
+      find package.accept_keywords.dir.bak -type f 2>/dev/null -exec cat {} + >> package.accept_keywords || true
+      chmod 644 package.accept_keywords
+      echo "consolidated accept-keywords layout (directory -> single file)"
+    else
+      echo "accept-keywords already single-file or absent (no-op)"
+    fi
+  register: system_base_ak_normalize
+  changed_when: "'consolidated' in system_base_ak_normalize.stdout"
+  become: true
+  when:
+    - ((system_base_managed | default(false)) | bool) | bool
+    - ansible_facts.os_family == 'Gentoo'
+
+# The CDI spec (/etc/cdi/nvidia.yaml) is the nvidia_cdi role's job,
+# guarded by `creates` there — no duplication here.
