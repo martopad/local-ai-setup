@@ -179,13 +179,17 @@ them). Q8 weights are the expected remedy for the verbose loop.
   `nohup` is debug-adequate; the unit survives box reboots better)
 - Q8 weights (~2× the weight footprint; check the 110 GiB GTT
   budget before the sync)
-- Short certified 40 Gbps cable (0.3–0.5 m, e.g. UGOURD "TB40G"
-  0.3 m) for the big-model path (GLM-5.3-Flash / DeepSeek class).
-  The current 1 m "TB5 80G" cable is 40 G-CAPABLE (trained 40 G once
-  on a cold boot) but is marginal at its length: 8 retrains → 40 G
-  once, 20 G seven times; port pair, cold-vs-hot, power-off and a
-  BIOS pre-CM/UCSI change set all ruled out. 20 Gbps +
-  native_write_striping=1 (now in the usb4_rdma role) is the reliable
-  operating point: 18.6 Gbit/s usable per rail, TP2 decode 77.7 tok/s.
+- Second cable for the big-model path (GLM-5.3-Flash / DeepSeek
+  class). The 1 m "TB5 80G" cable trains the full 40 Gbps (20.0 Gb/s
+  × 2) but ONLY in a specific orientation (the m5ai02 end flipped
+  180°); unflipped it settles at 20 G. 40 G is confirmed stable
+  across cold boots in that orientation. CAUTION: an unmarked
+  unplugged/replugged cable silently drops to 20 G — mark the m5ai02
+  end (tape) so it is always re-seated flipped. Performance note:
+  gufo's single-QP RDMA path caps at ~19.5 Gbit/s regardless of link
+  speed (8.9 unstripped → 18.6 @20G → 19.4 @40G striped), so 20 G
+  vs 40 G is performance-identical for the current TP2 deployment
+  (decode ~77 tok/s either way); the ~37–44 Gbit/s the big models
+  want needs TWO cables (4 rails), not a faster link.
 - 7.3.3 kernel on m5ai02 (new USB4/XDomain features only matter at
   the 40 Gb/s tier; no benefit at the current cable limit)
