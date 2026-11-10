@@ -179,8 +179,13 @@ them). Q8 weights are the expected remedy for the verbose loop.
   `nohup` is debug-adequate; the unit survives box reboots better)
 - Q8 weights (~2× the weight footprint; check the 110 GiB GTT
   budget before the sync)
-- Second cable / USB4-40 Gb/s for the big-model path
-  (GLM-5.3-Flash / DeepSeek class; the ~18 Gb/s sync requirement
-  that the single TB3 cable sits just under)
+- Short certified 40 Gbps cable (0.3–0.5 m, e.g. UGOURD "TB40G"
+  0.3 m) for the big-model path (GLM-5.3-Flash / DeepSeek class).
+  The current 1 m "TB5 80G" cable is 40 G-CAPABLE (trained 40 G once
+  on a cold boot) but is marginal at its length: 8 retrains → 40 G
+  once, 20 G seven times; port pair, cold-vs-hot, power-off and a
+  BIOS pre-CM/UCSI change set all ruled out. 20 Gbps +
+  native_write_striping=1 (now in the usb4_rdma role) is the reliable
+  operating point: 18.6 Gbit/s usable per rail, TP2 decode 77.7 tok/s.
 - 7.3.3 kernel on m5ai02 (new USB4/XDomain features only matter at
   the 40 Gb/s tier; no benefit at the current cable limit)
