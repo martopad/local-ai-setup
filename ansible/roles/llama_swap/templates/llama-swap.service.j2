@@ -49,12 +49,30 @@ ExecStart={{ llama_swap_bin | default('/usr/bin/llama-swap') }} --config {{ ansi
 TimeoutStopSec=120
 KillMode=mixed
 
+{% if llama_swap_memlock_infinity | default(false) -%}
+# Rootless containers inherit their HARD rlimits from the spawning
+# service, and a rootless (userns-root) container can never raise a
+# hard rlimit above the service's own hard cap (raising a hard limit
+# needs CAP_SYS_RESOURCE in the INITIAL namespace, which userns-root
+# lacks). The dist user-manager default (8 MB memlock) therefore
+# silently caps every rootless container it spawns — enough for
+# vLLM-class workloads, but NOT for RDMA: gufo's TP communicator
+# fails at ibv_reg_mr ("ibv_reg_mr for verbs buffers failed") when
+# the service runs under the 8 MB cap. Pairs with
+# DefaultLimitMEMLOCK=infinity in /etc/systemd/system.conf
+# (system_base role): the system.conf line raises the user manager's
+# default; this line pins it on the unit explicitly. Measured 2026-11-10.
+LimitMEMLOCK=infinity
+{% endif -%}
+
 # Safety net. A vLLM container that outlives llama-swap keeps ~15-17GB of VRAM
 # pinned and the next start will fail (the podman name is still held). The
 # list is derived from target_models so it always covers every model that
 # can exist -- a hard-coded list went stale when five models were added in
 # Nov 2026 and orphaned two containers that had to be killed by hand.
-ExecStopPost=/bin/sh -c 'podman stop -t 30 --ignore {{ llama_swap_models | default(target_models) | map(attribute='container_name') | join(' ') }} || true'
+{# select drops entries without a container_name (script models whose
+   lifecycle lives in their stop hook, not a local container). #}
+ExecStopPost=/bin/sh -c 'podman stop -t 30 --ignore {{ (llama_swap_models | default(target_models) | map(attribute='container_name') | select) | join(' ') }} || true'
 
 Restart=on-failure
 RestartSec=5

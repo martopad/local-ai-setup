@@ -94,13 +94,23 @@ vllm_endpoints:
     name: "m5ai01 (Strix Halo, llama-swap / vLLM ROCm)"
     base_url: "http://192.168.0.4:8000/v1"
     models:
-      # Single-model catalog on m5ai01 (2026-11-09, user decision) —
-      # add further models here when their entries land on the host.
+      # Two-model catalog on m5ai01 (2026-11-10) — the pooled TP2
+      # variant joins the single-host gufo entry; both surface through
+      # the same llama-swap proxy (exclusive GPU group). Add further
+      # models here when their entries land on the host.
       # context == gufo's --context; output == gufo's --max-tokens.
       "qwen3.8-flash-gguf":
         context: 133760
         output: 8192
         name: "Qwen3.8-Flash-Next (m5)"
+      # 2-rank TP2 over the USB4 RDMA rails (m5ai01 + m5ai02):
+      # context 524288 x 2 sessions per the tp2 launcher; thinking
+      # mode is very chatty on the Q4 build — thinking-off answers
+      # in seconds, thinking-on needs >=12K-token budgets.
+      "gufo-qwen3.8-flash-next-tp2-q4":
+        context: 524288
+        output: 8192
+        name: "Qwen3.8-Flash-Next TP2 (2x Strix Halo)"
 #  - provider: "vllm-b"
 #    name: "machine B (llama-swap / vLLM)"
 #    base_url: "http://192.168.0.x:8000/v1"

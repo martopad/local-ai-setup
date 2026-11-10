@@ -45,6 +45,15 @@ models:
 {% for model in llama_swap_models | default(target_models) if model.llama_swap_enabled | default(true) %}
   "{{ model.id }}":
     name: "{{ model.name }}"
+{# Script models (cmd_override): the cmd is a raw host command, not a
+   podman invocation — e.g. the two-box Gufo-TP2 launcher, which
+   shells out to a wrapper that starts the remote rank over SSH and
+   runs the local rank in the foreground. The podman block below is
+   skipped entirely; vLLM args never render for these. Podman-model
+   entries render byte-identically to before. #}
+{% if model.cmd_override is defined %}
+    cmd: {{ model.cmd_override }}
+{% else %}
     cmd: >-
       podman run --rm --init
 {% for flag in model.podman_flags | default(gpu_podman_flags) %}
@@ -71,6 +80,7 @@ models:
    measure prefix-cache hits. vLLM's default is off; prefix caching
    itself is already enabled. #}
       --enable-prompt-tokens-details
+{% endif %}
 {% endif %}
     cmdStop: "{{ model.cmdStop }}"
     proxy: "{{ model.proxy }}"

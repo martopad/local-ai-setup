@@ -63,6 +63,11 @@ amd_gtt_managed: false     # ttm.conf already deployed; only flip when
 
 opencode_managed: false     # no opencode on m5ai01; the desktop's opencode
                             # reaches it via the vllm-m5 entry in group_vars
+# Rootless-podman memlock pin for the llama-swap user service (see the
+# unit template comment: userns-root containers inherit hard rlimits
+# from the spawning service and can never raise them). Pairs with the
+# system_base DefaultLimitMEMLOCK system.conf task.
+llama_swap_memlock_infinity: true
 llama_swap_deploy: true     # the routine work: config + service unit + start
 llama_swap_autostart: true  # [Install] + enabled: the service comes up at
                             # boot via default.target (linger already in place
@@ -140,6 +145,29 @@ llama_swap_models:
     ttl: 1800
     opencode_enabled: false
 
+  # THE POOLED FLAGSHIP (2026-11-10): the same model as above, but
+  #    2-rank tensor-parallel over the USB4 RDMA rails — rank0 on
+  #    this box + rank1 on m5ai02 (single TB3 cable, ~14.4 Gbit/s
+  #    effective; measured prefill ~149-161 tok/s, decode ~44.5-51.6
+  #    tok/s single-user with MTP, 512K context x 2 sessions).
+  #    Script model: cmd/cmdStop call the gufo_tp2 wrapper, which
+  #    starts rank1 over prod-SSH and runs rank0 in the foreground on
+  #    ${PORT} so llama-swap's load/stop semantics stay clean.
+  #    container_name drives the service's ExecStopPost stop list.
+  #    The launcher script, image and model sync ship with the
+  #    gufo_tp2 role (gate gufo_tp2_managed; cutover ordering in
+  #    docs/tp2-pooling.md).
+  - id: gufo-qwen3.8-flash-next-tp2-q4
+    name: "Qwen3.8-Flash-Next TP2 (UD-Q4_K_XL, 2x Strix Halo)"
+    vllm: false
+    cmd_override: /home/prod/tp2-swap.sh run ${PORT} q4
+    cmdStop: /home/prod/tp2-swap.sh stop
+    proxy: http://127.0.0.1:${PORT}
+    checkEndpoint: /v1/models
+    ttl: 1800
+    container_name: gufo-tp2-rank0
+    opencode_enabled: false
+
 # Routing override: m5ai01 has no CPU historian — one exclusive GPU group.
 llama_swap_routing:
   - name: gpu
@@ -149,6 +177,6 @@ llama_swap_routing:
     members:
       # Only enabled models may appear here (llama-swap refuses to start
       # when a member has no model config; the template guard enforces
-      # it at deploy time). Single-model catalog (2026-11-09) — when a
-      # further entry is added, re-add its id here.
+      # it at deploy time).
       - "qwen3.8-flash-gguf"
+      - "gufo-qwen3.8-flash-next-tp2-q4"
