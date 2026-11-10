@@ -1,0 +1,17 @@
+[connection]
+id=tbv0
+{% if usb4_rdma_tbv0_uuid | default('') %}uuid={{ usb4_rdma_tbv0_uuid }}
+{% endif %}type=dummy
+interface-name={{ usb4_rdma_roce_netdev }}
+
+[dummy]
+
+[ipv4]
+address1={{ usb4_rdma_tbv0_ip }}
+method=manual
+
+[ipv6]
+addr-gen-mode=default
+method=disabled
+
+[proxy]

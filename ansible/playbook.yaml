@@ -18,7 +18,7 @@
     - gufo_tp2
     # portage_overlay + stuff_overlay are the dependency of
     # llama_swap_install: the first installs the shared overlay tooling
-    # (git + eslect-repository), the second registers + syncs the
+    # (git + eselect-repository), the second registers + syncs the
     # 'stuff' overlay, so the portage task in llama_swap_install can
     # see it. Both gate on stuff_overlay_managed.
     - portage_overlay
@@ -27,3 +27,22 @@
     - llama_swap
     - role: opencode
       tags: [opencode]
+
+# Root-gated play: the USB4 RDMA persistence layer (DKMS module,
+# modprobe params, tbv0 dummy). Root-side artifacts, so this play
+# runs as root. Cutover invocation (the gate is CLI, mirroring
+# system_base's root-gated tasks; -e gufo_tp2_managed=false keeps
+# play 1's prod-owned file deployment OUT of the root run so the
+# script ownership doesn't drift to root):
+#   ansible-playbook -i ansible/inventory.yaml ansible/playbook.yaml \
+#     -l m5ai01,m5ai02 -e ansible_user=root \
+#     -e ansible_private_key_file=$HOME/.ssh/keys/root.key \
+#     -e usb4_rdma_managed=true -e gufo_tp2_managed=false
+# Cutover window: stop the gufo-tp2 pair first; the role's first
+# task refuses to run while the containers are live on the touched
+# host.
+- name: USB4 RDMA persistence (root)
+  hosts: vllm
+  become: false
+  roles:
+    - usb4_rdma

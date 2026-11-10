@@ -1,0 +1,7 @@
+# Rendered by the usb4_rdma role (root-gated). The RDMA module needs
+# exclusive ownership of the USB4 data DMA rings; thunderbolt_net is
+# blacklisted because it would consume one ring (see role defaults).
+options thunderbolt_ibverbs {{ usb4_rdma_module_options | join(' ') }}
+{% for mod in usb4_rdma_blacklisted_modules %}
+blacklist {{ mod }}
+{% endfor %}

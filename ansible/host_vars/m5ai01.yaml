@@ -189,3 +189,9 @@ llama_swap_routing:
 gufo_tp2_managed: true
 gufo_tp2_rank: rank0
 gufo_tp2_image_digest: "3b1cd967de06e82a2867811b570aad1cd57fa8a3a208e5c949cad64b645b6d28"
+
+# USB4 RDMA persistence (usb4_rdma role, root-gated): this host's
+# side of the TB3 cable. tbv0 carries the RoCE address
+# (192.168.240.1/24, unroutable between the boxes on purpose).
+usb4_rdma_tbv0_ip: "192.168.240.1/24"
+usb4_rdma_tbv0_uuid: "b59bc161-1bda-46c4-823e-f6091f9a9991"

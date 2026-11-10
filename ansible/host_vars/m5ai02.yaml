@@ -80,3 +80,9 @@ gufo_tp2_managed: true
 gufo_tp2_rank: rank1
 gufo_tp2_image_digest: "3b1cd967de06e82a2867811b570aad1cd57fa8a3a208e5c949cad64b645b6d28"
 gufo_tp2_bootstrap_host: "192.168.0.4"
+
+# USB4 RDMA persistence (usb4_rdma role, root-gated): this host's
+# side of the TB3 cable. tbv0 carries the RoCE address
+# (192.168.240.2/24, unroutable between the boxes on purpose).
+usb4_rdma_tbv0_ip: "192.168.240.2/24"
+usb4_rdma_tbv0_uuid: "c59ab1d2-d08e-490c-bf3b-89def3c56a32"

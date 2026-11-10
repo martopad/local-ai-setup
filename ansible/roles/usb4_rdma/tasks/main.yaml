@@ -1,0 +1,174 @@
+---
+# USB4 RDMA persistence (root-gated, gate: usb4_rdma_managed).
+#
+# Internal ordering (the review's C5 sequence): ensure dkms tooling
+#   -> ensure DKMS source + kernel-adaptive variant
+#   -> dkms build/install for the running kernel
+#   -> deploy modprobe + modules-load files (parameters always come
+#      from modprobe.d even on udev hotplug autoload)
+#   -> deploy the tbv0 NM dummy (RoCE addressing)
+#   -> ensure the installed userspace provider
+#   -> functional gate: rails visible to ibverbs.
+# The active-state checks at the end verify what is RUNNING, not just
+# what is on disk.
+#
+# Cutover precondition: the module rebuild below drops the live rails
+# (modprobe -r + rebind), which kills any running TP2 pair. Run this
+# role in a maintenance window with the gufo-tp2 containers stopped
+# (the gate task refuses otherwise).
+
+- name: Refuse to run while TP2 containers are live on this host
+  # The rail rebuild is disruptive: it drops the RDMA link the pair
+  # is serving on. Rootless containers are prod's; a rootful `podman
+  # ps` sees only the root store, so probe through `su - prod`.
+  ansible.builtin.shell: |
+    set -e
+    [ -z "$(su - prod -c "podman ps -q --filter name=gufo-tp2 2>/dev/null" || true)" ]
+  changed_when: false
+  when: (usb4_rdma_managed | default(false)) | bool
+
+- name: Ensure DKMS tooling (portage)
+  # repo pattern (llama_swap_install), without world sync: this gate
+  # re-runs on every cutover, so a --sync per run would be wasteful.
+  community.general.portage:
+    package: sys-apps/dkms
+    state: present
+    sync: no
+  become: true
+  when: (usb4_rdma_managed | default(false)) | bool
+
+# ---------------------------------------------------------------- DKMS source + variant
+- name: Check for the DKMS source tree
+  ansible.builtin.stat:
+    path: "/usr/src/{{ usb4_rdma_pkgname }}-{{ usb4_rdma_pkgversion }}/kernel/verbs_dmabuf.c"
+  register: usb4_rdma_src
+  when: (usb4_rdma_managed | default(false)) | bool
+
+- name: Clone the DKMS source when missing (bootstrap)
+  ansible.builtin.git:
+    repo: "{{ usb4_rdma_upstream_repo }}"
+    dest: "/usr/src/{{ usb4_rdma_pkgname }}-{{ usb4_rdma_pkgversion }}"
+    version: "v{{ usb4_rdma_pkgversion }}"
+    depth: 1
+  when:
+    - (usb4_rdma_managed | default(false)) | bool
+    - not usb4_rdma_src.stat.exists
+
+- name: Copy the variant-ensure script into place
+  ansible.builtin.copy:
+    src: ensure-dkms-variant.sh
+    dest: /usr/local/bin/ensure-dkms-variant.sh
+    mode: "0755"
+  when: (usb4_rdma_managed | default(false)) | bool
+
+- name: Register the DKMS package (idempotent)
+  ansible.builtin.shell: >
+    dkms add {{ usb4_rdma_pkgname }}/{{ usb4_rdma_pkgversion }} --quiet || true
+  changed_when: false
+  when: (usb4_rdma_managed | default(false)) | bool
+
+- name: Ensure the kernel-adaptive source variant (4 PCI-access sites)
+  # DRY_RUN under check-mode: report CHANGED/NOCHANGE without rewriting.
+  ansible.builtin.shell: >-
+    /usr/local/bin/ensure-dkms-variant.sh {{ usb4_rdma_pkgname }} {{ usb4_rdma_pkgversion }}
+  environment:
+    DRY_RUN: "{{ '1' if ansible_check_mode | default(false) else '' }}"
+  register: usb4_rdma_variant
+  when: (usb4_rdma_managed | default(false)) | bool
+
+# ---------------------------------------------------------------- DKMS build/install
+- name: Rebuild + install the module when the variant changed or it is not installed
+  # check-mode: report what WOULD happen without touching the module.
+  ansible.builtin.shell: |
+    set -e
+    if [ "{{ ansible_check_mode | default(false) }}" = "True" ]; then
+      echo "CHECK-MODE: rebuild decision deferred (run without --check)"
+      exit 0
+    fi
+    NEED_BUILD=0
+    # variant task prints CHANGED when it rewrote the source
+    echo "{{ 'CHANGED' in (usb4_rdma_variant.stdout | default('')) }}" | tr '[:upper:]' '[:lower:]' | grep -q true && NEED_BUILD=1
+    # installed for the running kernel?
+    dkms status | grep -q "{{ usb4_rdma_pkgname }}/{{ usb4_rdma_pkgversion }}, $(uname -r), x86_64: installed" || NEED_BUILD=1
+    if [ "$NEED_BUILD" = "1" ]; then
+      dkms remove "{{ usb4_rdma_pkgname }}/{{ usb4_rdma_pkgversion }}" --all --quiet 2>/dev/null || true
+      dkms build "{{ usb4_rdma_pkgname }}/{{ usb4_rdma_pkgversion }}"
+      dkms install "{{ usb4_rdma_pkgname }}/{{ usb4_rdma_pkgversion }}"
+      modprobe -r thunderbolt_ibverbs 2>/dev/null || true
+      modprobe thunderbolt_ibverbs
+      echo REBUILT
+    else
+      echo SKIPPED
+    fi
+  register: usb4_rdma_build
+  when:
+    - (usb4_rdma_managed | default(false)) | bool
+    - not ansible_check_mode
+
+# ---------------------------------------------------------------- modprobe + modules-load
+- name: Deploy /etc/modprobe.d/thunderbolt-ibverbs.conf
+  ansible.builtin.template:
+    src: thunderbolt-ibverbs.conf.j2
+    dest: /etc/modprobe.d/thunderbolt-ibverbs.conf
+    mode: "0644"
+  when: (usb4_rdma_managed | default(false)) | bool
+
+- name: Deploy /etc/modules-load.d/thunderbolt-ibverbs.conf
+  ansible.builtin.copy:
+    content: "thunderbolt_ibverbs\n"
+    dest: /etc/modules-load.d/thunderbolt-ibverbs.conf
+    mode: "0644"
+  when: (usb4_rdma_managed | default(false)) | bool
+
+# ---------------------------------------------------------------- tbv0 dummy
+- name: Deploy the tbv0 NM dummy connection (RoCE addressing)
+  ansible.builtin.template:
+    src: tbv0.nmconnection.j2
+    dest: "/etc/NetworkManager/system-connections/{{ usb4_rdma_roce_netdev }}.nmconnection"
+    mode: "0600"
+    owner: root
+    group: root
+  when: (usb4_rdma_managed | default(false)) | bool
+
+- name: Reload the NM connection and bring the dummy up
+  ansible.builtin.shell: |
+    set -e
+    if [ "{{ ansible_check_mode | default(false) }}" = "True" ]; then
+      echo "CHECK-MODE: tbv0 reload deferred"
+      exit 0
+    fi
+    nmcli connection reload
+    nmcli connection up "{{ usb4_rdma_roce_netdev }}"
+    ip -4 addr show "{{ usb4_rdma_roce_netdev }}"
+  changed_when: false
+  when: (usb4_rdma_managed | default(false)) | bool
+
+# ---------------------------------------------------------------- provider
+- name: Ensure the userspace ibverbs provider is installed
+  # Installed artifact only (verified, not rebuilt): the original
+  # provider was a hand-rolled gcc + generated-ABI-structs build with
+  # no surviving recipe; the gufo-tp2 image compiles its own copy
+  # from the upstream rdma-core patches, so the host provider exists
+  # solely for host-side ibv tools (perftest, ibv_devices).
+  ansible.builtin.shell: |
+    set -e
+    ls /usr/lib64/libibverbs/{{ usb4_rdma_provider_so }}
+    ls /etc/libibverbs.d/{{ usb4_rdma_provider_driver }}
+    echo PROVIDER-PRESENT
+  changed_when: false
+  when: (usb4_rdma_managed | default(false)) | bool
+
+# ---------------------------------------------------------------- functional gate
+- name: Verify the rails are visible to userspace (active state, not files)
+  ansible.builtin.shell: |
+    set -e
+    if ! ibv_devices | grep -q usb4_rdma; then
+      echo "FAIL: no usb4_rdma rail visible. The udev service-class alias"
+      echo "(tbsvc:ktbverb*) re-binds on cable re-plug; manually: modprobe"
+      echo "thunderbolt_ibverbs and wait ~12s for the rail services."
+      exit 1
+    fi
+    ibv_devices
+    rdma link show || true
+  changed_when: false
+  when: (usb4_rdma_managed | default(false)) | bool

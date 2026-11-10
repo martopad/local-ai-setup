@@ -1,0 +1,50 @@
+---
+# USB4 RDMA persistence layer (thunderbolt_ibverbs DKMS + userspace
+# provider + tbv0 dummy). Root-gated: these are root-side artifacts.
+# Gate off = role is inert.
+
+usb4_rdma_managed: false
+
+# DKMS package (upstream hellas-ai/thunderbolt-ibverbs 0.4.0). The
+# source tree is cloned into /usr/src/<pkg>-<version>/ on first run
+# and kept; the kernel-adaptive variant step (files/ensure-dkms-variant.sh)
+# rewrites the 4 PCI-access sites in kernel/verbs_dmabuf.c to match
+# the running kernel's struct tb_nhi (Gentoo trees expose pdev,
+# vanilla 7.x exposes dev).
+usb4_rdma_pkgname: thunderbolt-ibverbs
+usb4_rdma_pkgversion: "0.4.0"
+usb4_rdma_upstream_repo: "https://github.com/hellas-ai/thunderbolt-ibverbs"
+
+# /etc/modprobe.d/thunderbolt-ibverbs.conf options. profile=linux_perf
+# is the board-tuned board profile (batch doorbell OFF per the
+# Bosgame M5 doc); roce_netdev names the RoCE dummy the module binds.
+usb4_rdma_module_options:
+  - "profile=linux_perf"
+  - "bind_services=1"
+  - "allocate_rings=1"
+  - "start_rings=1"
+  - "negotiate_native=1"
+  - "enable_tunnels=1"
+  - "register_verbs=1"
+  - "roce_netdev=tbv0"
+# Blacklisted module: thunderbolt_net eats one of the two data DMA
+# rings each USB4 controller has; the RDMA module needs exclusive
+# ring ownership, so the IP-link mode (thunderbolt_net) and RDMA
+# mode are mutually exclusive by design. Management stays on LAN.
+usb4_rdma_blacklisted_modules:
+  - thunderbolt_net
+
+# RoCE addressing dummy: the module synthesizes the GID table from
+# this netdev's IPv4 address. Deterministic per-host /24 below
+# 192.168.240.x (unroutable between the boxes by construction;
+# perftest handshakes go over the real LAN).
+usb4_rdma_roce_netdev: tbv0
+usb4_rdma_tbv0_ip: "192.168.240.1/24"
+usb4_rdma_tbv0_uuid: ""   # set in host_vars; NM-generated if empty
+
+# Userspace provider (installed, verified; NOT rebuilt by this role —
+# the original build was a hand-rolled gcc + generated-ABI-structs
+# recipe that is not recoverable from the repo, and the image build
+# compiles its own copy from rdma-core upstream patches anyway).
+usb4_rdma_provider_so: libusb4_rdma-rdmav59.so
+usb4_rdma_provider_driver: usb4_rdma.driver
