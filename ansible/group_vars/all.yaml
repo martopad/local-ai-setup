@@ -55,7 +55,10 @@ llama_swap_release_sha256: "cb1f9a94be05afa129d3c17868f1dd2ca710b919333c7b868239
 llama_swap_autostart: false
 
 # subuid/subgid range for system_base's usermod (collision risk on
-# multi-user hosts; override in host_vars).
+# multi-user hosts; override in host_vars). Single-range default; a
+# host whose rootless podman writes a multi-extent uid_map sets the
+# list form `subuid_ranges` instead (wins over subuid_range when
+# defined) — e.g. the Strix Halo dist kernels.
 subuid_range: "100000-165535"
 
 # system_base's emerge list (the community.general.portage task). AMD

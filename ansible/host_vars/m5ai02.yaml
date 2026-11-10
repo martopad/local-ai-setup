@@ -39,8 +39,21 @@ nvidia_cdi_managed: false
 system_base_packages:
   - app-containers/podman
   - app-admin/sudo
+  # sys-apps/shadow provides the newuidmap/newgidmap helpers rootless
+  # podman escalates through; sys-libs/libcap provides setcap/getcap
+  # (the system_base file-caps task re-applies the helper caps after
+  # any shadow package update strips them).
+  - sys-apps/shadow
+  - sys-libs/libcap
   # git + eslect-repository arrive with the portage_overlay role
   # (the llama-swap install path), not with the base system
+
+# Rootless podman on this distro kernel writes a multi-extent uid_map
+# (self-uid + both subuid ranges); two ranges are the live state.
+subuid_ranges:
+  - "100000-165535"
+  - "165536-231071"
+
 system_base_managed: false
 stuff_overlay_managed: false
 llama_swap_install: false

@@ -6,15 +6,75 @@
 # Pre-work on the new host: podman rootless needs the subuid/subgid ranges
 # below, and the become tasks need key-based sudo for the deploying user.
 
+# podman rootless needs subuid/subgid ranges. One range (100000-165535)
+# is enough for most hosts; the Strix Halo boxes carry two (rootless
+# podman on this distro kernel writes a multi-extent uid_map — self +
+# both ranges — which the newuidmap helper, running via file caps,
+# resolves against /etc/subuid). Per-range grep guard: /etc/subuid
+# lines are `user:START:COUNT`, usermod is NOT idempotent about
+# duplicates, so only add ranges that are absent.
 - name: Ensure subuid/subgid ranges for the podman user
   ansible.builtin.shell: |
-    grep -q "^{{ ansible_user_id }}:" /etc/subuid || \
-      usermod --add-subuids {{ subuid_range | default('100000-165535') }} \
-               --add-subgids {{ subuid_range | default('100000-165535') }} \
+    grep -q "^{{ ansible_user_id }}:{{ item.split('-')[0] }}:" /etc/subuid || \
+      usermod --add-subuids {{ item }} \
+               --add-subgids {{ item }} \
                "{{ ansible_user_id }}"
+  loop: "{{ subuid_ranges | default([subuid_range | default('100000-165535')]) }}"
   become: true
   changed_when: false # grep-guarded; assumes idempotent
-  when: system_base_managed | default(false)
+  when: (system_base_managed | default(false)) | bool
+
+# The dist kernels on these boxes silently IGNORE setuid bits on exec
+# (verified 2026-11-10: a chmod 4755 probe binary ran unprivileged,
+# both 6.18.62-dist-bin and 7.3.3-gentoo-dist). Rootless podman's
+# newuidmap/newgidmap escalation therefore only works via FILE
+# CAPABILITIES, which the kernel honours on exec. Re-applied on every
+# run: a portage update of sys-apps/shadow replaces the binaries and
+# strips the caps, silently breaking rootless podman afterwards.
+- name: Ensure file caps on newuidmap/newgidmap (dist kernels ignore setuid)
+  ansible.builtin.command: "setcap {{ item.cap }} {{ item.path }}"
+  loop:
+    - { path: /usr/bin/newuidmap, cap: "cap_setuid+ep" }
+    - { path: /usr/bin/newgidmap, cap: "cap_setgid+ep" }
+  become: true
+  changed_when: true # setcap is idempotent; the cap check below verifies
+  when:
+    - (system_base_managed | default(false)) | bool
+    - ansible_facts.os_family == 'Gentoo'
+
+- name: Verify helper caps took effect
+  ansible.builtin.shell: |
+    set -e
+    getcap /usr/bin/newuidmap | grep -q "cap_setuid=ep"
+    getcap /usr/bin/newgidmap | grep -q "cap_setgid=ep"
+  become: true
+  changed_when: false
+  failed_when: true
+  when:
+    - (system_base_managed | default(false)) | bool
+    - ansible_facts.os_family == 'Gentoo'
+
+# User managers (systemd user@UID) inherit DefaultLimitMEMLOCK from
+# /etc/systemd/system.conf, and user-unit services inherit the manager's
+# hard limits. A rootless container can NEVER raise a hard rlimit above
+# its spawning service's hard cap (userns-root lacks the init-ns
+# CAP_SYS_RESOURCE), so an 8 MB user-manager default silently caps every
+# rootless container — which breaks ibv_reg_mr for RDMA workloads
+# (gufo TP2, measured 2026-11-10: "ibv_reg_mr for verbs buffers
+# failed" while the PAM-login path was fine). Applies at the NEXT user
+# manager start; a running manager keeps its old limits until
+# `systemctl restart user@<uid>` (a cutover step — it kills running
+# user units, including llama-swap; do it in a maintenance window).
+- name: Set DefaultLimitMEMLOCK=infinity in /etc/systemd/system.conf
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/system.conf
+    regexp: "^#?\\s*DefaultLimitMEMLOCK="
+    line: "DefaultLimitMEMLOCK=infinity"
+    state: present
+  become: true
+  when:
+    - (system_base_managed | default(false)) | bool
+    - ansible_facts.os_family == 'Gentoo'
 
 # The community.general.portage module manages ebuilds properly: it checks
 # the installed DB (state:present is a no-op when already merged) and
@@ -40,7 +100,7 @@
     mode: "0644"
   become: true
   when:
-    - system_base_managed | default(false)
+    - (system_base_managed | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'
 
 # Key-only service accounts: a NOPASSWD sudoers.d entry so Ansible
@@ -57,7 +117,7 @@
   loop: "{{ system_base_sudo_users | default([]) }}"
   become: true
   when:
-    - system_base_managed | default(false)
+    - (system_base_managed | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'
 
 - name: Install system-base packages (Gentoo)
@@ -67,7 +127,7 @@
     sync: yes
   become: true
   when:
-    - system_base_managed | default(false)
+    - (system_base_managed | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'
   # The CDI spec (/etc/cdi/nvidia.yaml) is the nvidia_cdi role's job,
   # guarded by `creates` there — no duplication here.
