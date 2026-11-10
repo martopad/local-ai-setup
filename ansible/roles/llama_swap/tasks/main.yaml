@@ -3,40 +3,55 @@
 # fail-closed, so a new box in the vllm group does not get a premature
 # config/unit before podman and the binary exist. localhost sets it
 # true in its host_vars.)
+#
+# User-scope files belong to the SERVICE user (`llama_swap_user`,
+# /home/<user>), never to the connection user: a root cutover run must
+# not render them into /root/.config (that produced a crash-looping
+# duplicate unit in user@0 on m5ai01, 2026-11-11). Every user-scope
+# task below is additionally gated on connection user == service user;
+# root runs skip them, and linger/system-wide tasks keep running.
 - name: Create cache and config directories
   file:
-    path: "{{ ansible_user_dir }}/.cache/{{ item }}"
+    path: /home/{{ llama_swap_user | default('prod') }}/.cache/{{ item }}
     state: directory
     mode: '0755'
   loop:
     - huggingface
     - vllm
     - vllm-parsers
-  when: (llama_swap_deploy | default(false)) | bool
+  when:
+    - (llama_swap_deploy | default(false)) | bool
+    - (ansible_user_id | default('prod')) | string == (llama_swap_user | default('prod')) | string
   tags: config
 
 - name: Create llama-swap config directory
   file:
-    path: "{{ ansible_user_dir }}/.config/llama-swap"
+    path: /home/{{ llama_swap_user | default('prod') }}/.config/llama-swap
     state: directory
     mode: '0755'
-  when: (llama_swap_deploy | default(false)) | bool
+  when:
+    - (llama_swap_deploy | default(false)) | bool
+    - (ansible_user_id | default('prod')) | string == (llama_swap_user | default('prod')) | string
   tags: config
 
 - name: Create systemd user directory
   file:
-    path: "{{ ansible_user_dir }}/.config/systemd/user"
+    path: /home/{{ llama_swap_user | default('prod') }}/.config/systemd/user
     state: directory
     mode: '0755'
-  when: (llama_swap_deploy | default(false)) | bool
+  when:
+    - (llama_swap_deploy | default(false)) | bool
+    - (ansible_user_id | default('prod')) | string == (llama_swap_user | default('prod')) | string
   tags: config
 
 - name: Deploy llama-swap configuration
   template:
     src: config.yaml.j2
-    dest: "{{ ansible_user_dir }}/.config/llama-swap/config.yaml"
+    dest: /home/{{ llama_swap_user | default('prod') }}/.config/llama-swap/config.yaml
     mode: '0644'
-  when: (llama_swap_deploy | default(false)) | bool
+  when:
+    - (llama_swap_deploy | default(false)) | bool
+    - (ansible_user_id | default('prod')) | string == (llama_swap_user | default('prod')) | string
   tags:
     - config
     - llama-swap-config
@@ -44,9 +59,11 @@
 - name: Deploy llama-swap systemd service
   template:
     src: llama-swap.service.j2
-    dest: "{{ ansible_user_dir }}/.config/systemd/user/llama-swap.service"
+    dest: /home/{{ llama_swap_user | default('prod') }}/.config/systemd/user/llama-swap.service
     mode: '0644'
-  when: (llama_swap_deploy | default(false)) | bool
+  when:
+    - (llama_swap_deploy | default(false)) | bool
+    - (ansible_user_id | default('prod')) | string == (llama_swap_user | default('prod')) | string
   notify: reload systemd
   tags:
     - config
@@ -55,7 +72,7 @@
 # Headless boxes: the user unit only runs while a session is active
 # without linger. `loginctl enable-linger` needs root -> become.
 - name: Enable linger for the llama-swap user (headless boxes)
-  command: loginctl enable-linger {{ ansible_user_id }}
+  command: loginctl enable-linger {{ llama_swap_user | default('prod') }}
   become: true
   changed_when: false
   when:
@@ -77,6 +94,7 @@
   when:
     - (llama_swap_deploy | default(false)) | bool
     - (llama_swap_autostart | default(false)) | bool
+    - (ansible_user_id | default('prod')) | string == (llama_swap_user | default('prod')) | string
   tags: llama-swap-config
 
 - name: Ensure llama-swap service is started
@@ -86,4 +104,6 @@
     scope: user
   become: false
   ignore_errors: true
-  when: (llama_swap_deploy | default(false)) | bool
+  when:
+    - (llama_swap_deploy | default(false)) | bool
+    - (ansible_user_id | default('prod')) | string == (llama_swap_user | default('prod')) | string

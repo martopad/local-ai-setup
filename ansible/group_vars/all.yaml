@@ -61,6 +61,14 @@ llama_swap_autostart: false
 # defined) — e.g. the Strix Halo dist kernels.
 subuid_range: "100000-165535"
 
+# Service user that owns the llama-swap user-unit + config on this
+# host. The llama_swap role renders its user-scope files under
+# /home/<llama_swap_user> and its user-scope tasks only run when the
+# connection user IS that user (a root cutover run must not render
+# them into /root/.config — that created a crash-looping duplicate
+# unit in user@0 on m5ai01, removed 2026-11-11).
+llama_swap_user: prod
+
 # system_base's emerge list (the community.general.portage task). AMD
 # boxes override this in host_vars to drop the nvidia entry. git and
 # eselect-repository are the portage_overlay role's job (they come
