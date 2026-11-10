@@ -11,7 +11,8 @@ roll back, and what the repo now owns.
  kernel 7.3.3-gentoo-dist          kernel 6.18.62-gentoo-dist-bin
  rank0: HTTP :8000, bootstrap      rank1: worker only (no HTTP)
    18515, control 18516            dials rank0 bootstrap over LAN
-      |        Thunderbolt-3 cable (10 Gb/s x 2 lanes, ~14.4 Gbit/s RDMA)      |
+      |  USB4 link: 20.0 Gb/s × 2 lanes = 40 G class (flipped-cable       |
+       |  orientation; 19.4 Gbit/s usable via native_write_striping)   |
       +---- usb4_rdma5/6 rails (RoCEv2, MTU 4096) ----+
       tbv0 dummy 192.168.240.1            tbv0 dummy 192.168.240.2
 ```
@@ -21,23 +22,50 @@ roll back, and what the repo now owns.
   via `ttm.pages_limit=28835840` (kernel cmdline; see the amd_gtt role
   notes — on m5ai02 the boot loader bypasses /etc/modprobe.d, so the
   cmdline is the source of truth).
-- One TB3-certified cable (the original 240 W USB2 charging cable
-  *cannot* train a USB4 link at all — a plain USB2 cable is
-  electrically silent on the routers; the eGPU cable is the working
-  one). Link settles at 10 Gb/s × 2 lanes across ~3 consecutive boots
-  with no retrain.
+- One 1 m "TB5 80G" USB4 cable (superseded the original TB3 eGPU
+  cable; the very first 240 W USB2 charging cable *cannot* train a
+  USB4 link at all — a plain USB2 cable is electrically silent on
+  the routers). Link rate is orientation-dependent: with the m5ai02
+  end flipped 180° the link trains 20.0 Gb/s × 2 = 40 G class
+  (stable across hot retrains and cold boots); unflipped it settles
+  at 10 Gb/s × 2 = 20 G. HAZARD: re-plugging unmarked silently drops
+  to 20 G — the m5ai02 end should carry a tape mark so it is always
+  re-seated flipped.
 - Model: `Qwen3.8-Flash-Next` UD-Q4_K_XL (4-shard GGUF + MTP Q8 draft
   + vision proj, 108 GB on each box at `/home/prod/models/flash-next`),
   served by the gufo-tp2 container image with 2-rank tensor parallel.
+
+
+### BIOS state (both boxes, 2026-11-11)
+
+Three USB4-related settings, kept in their current values:
+
+- **USB4 pre-CM Enable → Disabled** (CBS > FCH Common Options > USB4
+  Configuration Options) — keeps the BIOS Pre-OS Connection Manager
+  from initializing the USB4 router before Linux takes over.
+- **UCSI Support → Enabled** (Advanced > USB/Thunderbolt
+  Configurations) — the OS drives PD/Alt-Mode via ucsi_acpi.
+- **Reconfig Rebalance Resources by OS → Enabled** (same section) —
+  the OS reallocates PCIe resources on USB4 hot-plug.
+
+Side effect: the back USB4 ports now hot-train on cable plug
+(previously cold-boot-only). Link *rate* is NOT set by these
+settings — 40 G vs 20 G is the cable orientation (see the cable
+bullet above).
+
+Hidden advanced menu (BeyondMax BIOS): Del → **Alt+F5** → save &
+exit → reboot → Del again. The Advanced settings (incl. the
+CBS/FCH and USB/Thunderbolt sections above) are only visible on
+that second entry.
 
 ## 2. Measured numbers (2026-11-10)
 
 | Quantity | Value |
 |---|---|
-| RDMA rail | `ib_write_bw` ≈ 901.5 MB/s ≈ **7.2 Gbit/s per rail**, ~14.4 Gbit/s both rails |
+| RDMA (gufo single-QP, striped) | `ib_write_bw` **19.4 Gbit/s** on the 40 G link (18.6 at 20 G; 8.9 unstripped — the single-QP RDMA path caps at ~19.5 Gbit/s regardless of link speed) |
 | Model load | ~21–23 s per rank (60.5 GiB weights + snapshot cache into 112.64 GiB GTT) |
 | Prefill | 149–161 tok/s single-user |
-| Decode | 44.5–51.6 tok/s single-user (MTP drafts 73–78 % accepted) |
+| Decode | **76–77.7 tok/s** single-user with `native_write_striping` (44.5–51.6 without; MTP drafts 73–78 % accepted) |
 | Prefix cache | 33.2 GiB snapshot capacity; a repeat prompt is a cache hit (~0.1 s restore vs ~3 s prefill) |
 | Context | 512 K × 2 sessions as deployed (`--enable-yarn`); total concurrent ≈ 1.0 M tokens |
 | Memory cost | ~62 GiB host RAM per box while loaded (zero when unloaded — ttl auto-unload) |
@@ -191,5 +219,5 @@ them). Q8 weights are the expected remedy for the verbose loop.
   vs 40 G is performance-identical for the current TP2 deployment
   (decode ~77 tok/s either way); the ~37–44 Gbit/s the big models
   want needs TWO cables (4 rails), not a faster link.
-- 7.3.3 kernel on m5ai02 (new USB4/XDomain features only matter at
-  the 40 Gb/s tier; no benefit at the current cable limit)
+- 7.3.3 kernel on m5ai02 (newer USB4/XDomain kernel features; no
+  measurable benefit at the current single-cable operating point)
