@@ -49,7 +49,6 @@
     getcap /usr/bin/newgidmap | grep -q "cap_setgid=ep"
   become: true
   changed_when: false
-  failed_when: true
   when:
     - (system_base_managed | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'

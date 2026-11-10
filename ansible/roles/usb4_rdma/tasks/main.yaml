@@ -25,24 +25,24 @@
     set -e
     [ -z "$(su - prod -c "podman ps -q --filter name=gufo-tp2 2>/dev/null" || true)" ]
   changed_when: false
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool
 
 - name: Ensure DKMS tooling (portage)
   # repo pattern (llama_swap_install), without world sync: this gate
   # re-runs on every cutover, so a --sync per run would be wasteful.
   community.general.portage:
-    package: sys-apps/dkms
+    package: sys-kernel/dkms
     state: present
     sync: no
   become: true
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool
 
 # ---------------------------------------------------------------- DKMS source + variant
 - name: Check for the DKMS source tree
   ansible.builtin.stat:
     path: "/usr/src/{{ usb4_rdma_pkgname }}-{{ usb4_rdma_pkgversion }}/kernel/verbs_dmabuf.c"
   register: usb4_rdma_src
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool
 
 - name: Clone the DKMS source when missing (bootstrap)
   ansible.builtin.git:
@@ -51,7 +51,7 @@
     version: "v{{ usb4_rdma_pkgversion }}"
     depth: 1
   when:
-    - (usb4_rdma_managed | default(false)) | bool
+    - ((usb4_rdma_managed | default(false)) | bool) | bool
     - not usb4_rdma_src.stat.exists
 
 - name: Copy the variant-ensure script into place
@@ -59,13 +59,13 @@
     src: ensure-dkms-variant.sh
     dest: /usr/local/bin/ensure-dkms-variant.sh
     mode: "0755"
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool
 
 - name: Register the DKMS package (idempotent)
   ansible.builtin.shell: >
     dkms add {{ usb4_rdma_pkgname }}/{{ usb4_rdma_pkgversion }} --quiet || true
   changed_when: false
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool
 
 - name: Ensure the kernel-adaptive source variant (4 PCI-access sites)
   # DRY_RUN under check-mode: report CHANGED/NOCHANGE without rewriting.
@@ -74,7 +74,7 @@
   environment:
     DRY_RUN: "{{ '1' if ansible_check_mode | default(false) else '' }}"
   register: usb4_rdma_variant
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool
 
 # ---------------------------------------------------------------- DKMS build/install
 - name: Rebuild + install the module when the variant changed or it is not installed
@@ -102,7 +102,7 @@
     fi
   register: usb4_rdma_build
   when:
-    - (usb4_rdma_managed | default(false)) | bool
+    - ((usb4_rdma_managed | default(false)) | bool) | bool
     - not ansible_check_mode
 
 # ---------------------------------------------------------------- modprobe + modules-load
@@ -111,14 +111,14 @@
     src: thunderbolt-ibverbs.conf.j2
     dest: /etc/modprobe.d/thunderbolt-ibverbs.conf
     mode: "0644"
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool
 
 - name: Deploy /etc/modules-load.d/thunderbolt-ibverbs.conf
   ansible.builtin.copy:
     content: "thunderbolt_ibverbs\n"
     dest: /etc/modules-load.d/thunderbolt-ibverbs.conf
     mode: "0644"
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool
 
 # ---------------------------------------------------------------- tbv0 dummy
 - name: Deploy the tbv0 NM dummy connection (RoCE addressing)
@@ -128,7 +128,7 @@
     mode: "0600"
     owner: root
     group: root
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool
 
 - name: Reload the NM connection and bring the dummy up
   ansible.builtin.shell: |
@@ -141,7 +141,7 @@
     nmcli connection up "{{ usb4_rdma_roce_netdev }}"
     ip -4 addr show "{{ usb4_rdma_roce_netdev }}"
   changed_when: false
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool
 
 # ---------------------------------------------------------------- provider
 - name: Ensure the userspace ibverbs provider is installed
@@ -156,7 +156,7 @@
     ls /etc/libibverbs.d/{{ usb4_rdma_provider_driver }}
     echo PROVIDER-PRESENT
   changed_when: false
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool
 
 # ---------------------------------------------------------------- functional gate
 - name: Verify the rails are visible to userspace (active state, not files)
@@ -171,4 +171,4 @@
     ibv_devices
     rdma link show || true
   changed_when: false
-  when: (usb4_rdma_managed | default(false)) | bool
+  when: ((usb4_rdma_managed | default(false)) | bool) | bool

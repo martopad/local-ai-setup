@@ -24,7 +24,7 @@
   changed_when: false
   check_mode: false
   when:
-    - stuff_overlay_managed | default(false)
+    - (stuff_overlay_managed | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'
 
 # Runs only when the sync said the repo is unknown. 'eselect
@@ -37,7 +37,7 @@
   become: true
   register: so_add
   when:
-    - stuff_overlay_managed | default(false)
+    - (stuff_overlay_managed | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'
     - so_sync.rc != 0
   failed_when: >-

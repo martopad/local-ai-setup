@@ -17,5 +17,5 @@
     sync: yes
   become: true
   when:
-    - stuff_overlay_managed | default(false)
+    - (stuff_overlay_managed | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'

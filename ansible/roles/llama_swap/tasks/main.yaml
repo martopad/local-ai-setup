@@ -12,7 +12,7 @@
     - huggingface
     - vllm
     - vllm-parsers
-  when: llama_swap_deploy | default(false)
+  when: (llama_swap_deploy | default(false)) | bool
   tags: config
 
 - name: Create llama-swap config directory
@@ -20,7 +20,7 @@
     path: "{{ ansible_user_dir }}/.config/llama-swap"
     state: directory
     mode: '0755'
-  when: llama_swap_deploy | default(false)
+  when: (llama_swap_deploy | default(false)) | bool
   tags: config
 
 - name: Create systemd user directory
@@ -28,7 +28,7 @@
     path: "{{ ansible_user_dir }}/.config/systemd/user"
     state: directory
     mode: '0755'
-  when: llama_swap_deploy | default(false)
+  when: (llama_swap_deploy | default(false)) | bool
   tags: config
 
 - name: Deploy llama-swap configuration
@@ -36,7 +36,7 @@
     src: config.yaml.j2
     dest: "{{ ansible_user_dir }}/.config/llama-swap/config.yaml"
     mode: '0644'
-  when: llama_swap_deploy | default(false)
+  when: (llama_swap_deploy | default(false)) | bool
   tags:
     - config
     - llama-swap-config
@@ -46,7 +46,7 @@
     src: llama-swap.service.j2
     dest: "{{ ansible_user_dir }}/.config/systemd/user/llama-swap.service"
     mode: '0644'
-  when: llama_swap_deploy | default(false)
+  when: (llama_swap_deploy | default(false)) | bool
   notify: reload systemd
   tags:
     - config
@@ -59,8 +59,8 @@
   become: true
   changed_when: false
   when:
-    - llama_swap_deploy | default(false)
-    - llama_swap_linger | default(false)
+    - (llama_swap_deploy | default(false)) | bool
+    - (llama_swap_linger | default(false)) | bool
 
 # Boot autostart (headless boxes): render the [Install] section (template,
 # gated on llama_swap_autostart) and enable the user unit. The unit only
@@ -75,8 +75,8 @@
     scope: user
   become: false
   when:
-    - llama_swap_deploy | default(false)
-    - llama_swap_autostart | default(false)
+    - (llama_swap_deploy | default(false)) | bool
+    - (llama_swap_autostart | default(false)) | bool
   tags: llama-swap-config
 
 - name: Ensure llama-swap service is started
@@ -86,4 +86,4 @@
     scope: user
   become: false
   ignore_errors: true
-  when: llama_swap_deploy | default(false)
+  when: (llama_swap_deploy | default(false)) | bool

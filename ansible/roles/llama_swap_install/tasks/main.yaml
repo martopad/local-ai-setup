@@ -35,7 +35,7 @@
     path: /etc/portage/package.accept_keywords
   register: ls_ak_stat
   when:
-    - llama_swap_install | default(false)
+    - (llama_swap_install | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'
 
 # dir layout, or absent path (fresh box: create the dir layout).
@@ -49,7 +49,7 @@
     directory_mode: "0755"
   become: true
   when:
-    - llama_swap_install | default(false)
+    - (llama_swap_install | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'
     - (ls_ak_stat.stat.isdir | default(false))
       or not (ls_ak_stat.stat.exists | default(false))
@@ -63,7 +63,7 @@
     mode: "0644"
   become: true
   when:
-    - llama_swap_install | default(false)
+    - (llama_swap_install | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'
     - ls_ak_stat.stat.exists and not ls_ak_stat.stat.isdir
   tags: [llama-swap-install]
@@ -75,7 +75,7 @@
     sync: yes
   become: true
   when:
-    - llama_swap_install | default(false)
+    - (llama_swap_install | default(false)) | bool
     - ansible_facts.os_family == 'Gentoo'
 
 # --- Non-Gentoo fallback: pinned release binary, if-missing ------------
@@ -84,12 +84,12 @@
     path: "{{ llama_swap_bin | default('/usr/bin/llama-swap') }}"
   register: ls_bin_stat
   when:
-    - llama_swap_install | default(false)
+    - (llama_swap_install | default(false)) | bool
     - ansible_facts.os_family != 'Gentoo'
 
 - name: "Install llama-swap v{{ llama_swap_version }} (pinned release, non-Gentoo)"
   when:
-    - llama_swap_install | default(false)
+    - (llama_swap_install | default(false)) | bool
     - ansible_facts.os_family != 'Gentoo'
     - not ls_bin_stat.stat.exists
   block:

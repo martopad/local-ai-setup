@@ -17,7 +17,7 @@
     path: /home/prod
     state: directory
     mode: "0755"
-  when: gufo_tp2_managed | default(false)
+  when: (gufo_tp2_managed | default(false)) | bool
 
 - name: Deploy TP2 launcher scripts for the rank0 host (wrapper + foreground + detached)
   ansible.builtin.template:
@@ -29,7 +29,7 @@
     - tp2-rank0-fg.sh.j2
     - tp2-rank0.sh.j2
   when:
-    - gufo_tp2_managed | default(false)
+    - (gufo_tp2_managed | default(false)) | bool
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Deploy TP2 launcher script for the rank1 host (worker)
@@ -38,7 +38,7 @@
     dest: /home/prod/tp2-rank1.sh
     mode: "0755"
   when:
-    - gufo_tp2_managed | default(false)
+    - (gufo_tp2_managed | default(false)) | bool
     - gufo_tp2_rank | default('rank0') == 'rank1'
 
 # ---------------------------------------------------------------- ssh trust
@@ -53,7 +53,7 @@
     path: "{{ gufo_tp2_ssh_key }}"
   register: gufo_tp2_key_stat
   when:
-    - gufo_tp2_managed | default(false)
+    - (gufo_tp2_managed | default(false)) | bool
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Generate prod SSH key for the rank1 hop (missing only, never overwrite)
@@ -61,7 +61,7 @@
     ssh-keygen -t ed25519 -f {{ gufo_tp2_ssh_key }} -N ""
     -C "prod@{{ inventory_hostname }}-tp2" -q
   when:
-    - gufo_tp2_managed | default(false)
+    - (gufo_tp2_managed | default(false)) | bool
     - gufo_tp2_rank | default('rank0') == 'rank0'
     - not gufo_tp2_key_stat.stat.exists
   changed_when: true
@@ -74,7 +74,7 @@
     owner: prod
     group: prod
   when:
-    - gufo_tp2_managed | default(false)
+    - (gufo_tp2_managed | default(false)) | bool
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Derive the public key from the private key when missing
@@ -87,7 +87,7 @@
   args:
     creates: "{{ gufo_tp2_ssh_key }}.pub"
   when:
-    - gufo_tp2_managed | default(false)
+    - (gufo_tp2_managed | default(false)) | bool
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Ensure SSH key file permissions (rank0 host only; the keypair
@@ -99,7 +99,7 @@
     owner: prod
     group: prod
   when:
-    - gufo_tp2_managed | default(false)
+    - (gufo_tp2_managed | default(false)) | bool
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Ensure rank1 host key in prod known_hosts (ssh-keyscan)
@@ -122,7 +122,7 @@
   changed_when: gufo_tp2_kh.rc == 0
   failed_when: false
   when:
-    - gufo_tp2_managed | default(false)
+    - (gufo_tp2_managed | default(false)) | bool
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Verify prod -> rank1 SSH (BatchMode; out-of-band bootstrap if this fails)
@@ -137,7 +137,7 @@
   changed_when: false
   failed_when: false
   when:
-    - gufo_tp2_managed | default(false)
+    - (gufo_tp2_managed | default(false)) | bool
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Fail with bootstrap instructions if rank1 hop is not trusted yet
@@ -153,7 +153,7 @@
       where <pub-key> is the content of {{ gufo_tp2_ssh_key }}.pub on
       the rank0 host — see docs/tp2-pooling.md "first-run bootstrap".
   when:
-    - gufo_tp2_managed | default(false)
+    - (gufo_tp2_managed | default(false)) | bool
     - gufo_tp2_rank | default('rank0') == 'rank0'
     - gufo_tp2_ssh_probe.rc is defined and gufo_tp2_ssh_probe.rc != 0
 
@@ -169,7 +169,7 @@
   register: gufo_tp2_disk_free
   changed_when: false
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Refuse image deploy without sufficient free disk
@@ -180,7 +180,7 @@
       {{ gufo_tp2_build_disk_free_gib }} (rootful store + save tar + rootless
       store copies). Free space first (rm old tars / podman image prune).
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Stage the Dockerfile for the next build
@@ -190,7 +190,7 @@
     mode: "0644"
   become: true
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 
@@ -202,7 +202,7 @@
   changed_when: false
   failed_when: false
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Build the gufo-tp2 image (rootful, only when digest does not match)
@@ -216,7 +216,7 @@
   args:
     executable: /bin/bash
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
     - >
       gufo_tp2_image_digest | default('') != ''
@@ -230,7 +230,7 @@
   become: true
   changed_when: true
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Load image into the local prod rootless store
@@ -242,7 +242,7 @@
   become: true
   changed_when: true
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Move image tar to rank1 and load into both its stores
@@ -262,7 +262,7 @@
   become: true
   changed_when: true
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Verify image digest in both prod stores
@@ -280,7 +280,7 @@
     [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" = "$REMOTE" ]
   become: true
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_image_deploy | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_image_deploy | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
   changed_when: false
 
@@ -302,7 +302,7 @@
   become: true
   changed_when: false
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_model_sync | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_model_sync | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Sync model tree rank0 -> rank1 (incremental, resumable)
@@ -312,7 +312,7 @@
   become: true
   changed_when: true
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_model_sync | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_model_sync | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Restore prod ownership of the rank1 model tree
@@ -322,7 +322,7 @@
   become: true
   changed_when: false
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_model_sync | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_model_sync | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
 
 - name: Verify model tree checksums on rank1
@@ -337,5 +337,5 @@
   become: true
   changed_when: false
   when:
-    - (gufo_tp2_managed | default(false)) and (gufo_tp2_model_sync | default(false))
+    - ((gufo_tp2_managed | default(false)) | bool) and ((gufo_tp2_model_sync | default(false)) | bool)
     - gufo_tp2_rank | default('rank0') == 'rank0'
