@@ -97,6 +97,30 @@ llama_swap_linger: false    # linger was enabled once (root, bootstrap);
 # gpu_podman_flags override is needed on this host.
 
 llama_swap_models:
+  # RESIDENT ENGINE (2026-11-11 cutover): GLM-5.3-Flash, 2-rank TP2 over
+  #    USB4 STREAM on the strix lab kernel (c, both boxes). The
+  #    orchestrator launcher is out-of-band (note #9): glm5-swap.sh
+  #    starts rank1 on m5ai02 over prod-SSH and runs rank0 in the
+  #    foreground on ${PORT}, so llama-swap's load/stop semantics stay
+  #    clean. container_name grows the service unit's ExecStopPost
+  #    safety net.
+  - id: glm-5.3-flash-tp2
+    name: "GLM-5.3-Flash TP2 (EXL3 4.05bpw, 2x Strix Halo, USB4 STREAM)"
+    vllm: false
+    cmd_override: /home/prod/glm5-swap.sh run ${PORT}
+    cmdStop: /home/prod/glm5-swap.sh stop
+    proxy: http://127.0.0.1:${PORT}
+    checkEndpoint: /v1/models
+    ttl: 1800
+    container_name: strix-glm5-rank0
+    opencode_enabled: false
+
+# MILESTONE BACKLOG (demoted from the active catalog 2026-11-11: GLM-5.3
+#    is the resident engine on this pool; these gufo entries are the
+#    single-host and TP2 cutover path for when the gufo milestone lands).
+#    Re-enable: move a block back under llama_swap_models and add its id
+#    to llama_swap_routing.members below.
+llama_swap_models_backlog:
   # THE FLAGSHIP via gufo (2026-11-09): Qwen3.8-Flash-Next, newest
   #    3.8-gen MoE (6B active; beats Qwen3.8-27B on SWE-Pro 62.5 vs 61.7
   #    and DeepSWE 58.7 vs 42.2). The vLLM/Quark-MXFP4 route for this
@@ -184,8 +208,11 @@ llama_swap_routing:
       # Only enabled models may appear here (llama-swap refuses to start
       # when a member has no model config; the template guard enforces
       # it at deploy time).
-      - "qwen3.8-flash-gguf"
-      - "gufo-qwen3.8-flash-next-tp2-q4"
+      - "glm-5.3-flash-tp2"
+      # MILESTONE BACKLOG (gufo cutover): un-comment when the gufo blocks
+      # move back into llama_swap_models:
+      # - "qwen3.8-flash-gguf"
+      # - "gufo-qwen3.8-flash-next-tp2-q4"
 
 # Two-box pooling (gufo_tp2 role, 2026-11-10): this box is the rank0
 # host (serves HTTP + runs the llama-swap wrapper + the prod-SSH hop).
