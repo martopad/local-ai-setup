@@ -107,19 +107,19 @@ vllm_endpoints:
       # per the serve config (8192 x 8192). The gufo tier is milestone
       # backlog (demoted from the catalog 2026-11-11) — un-comment when
       # the gufo cutover lands.
-      # context = the engine's served window: --capacity 65536 per slot
+      # context = the engine's served window: --capacity 131072 per slot
       # (both launchers pass it; the engine's baked-in default is 8192),
       # prompt + output SHARED in that window. The engine allocates the
       # per-slot KV rings EAGERLY at startup (vLLM-style), so a too-big
       # capacity fails the startup admission check, not OOM mid-run:
-      # measured 2026-11-11, 8 slots x 65536 fits (device 91.2/117.2
-      # GiB, +8.5 GiB KV vs 8K; 8K headroom GTT 34.3 -> 25.8 GiB).
+      # measured 2026-11-11, 8 slots x 131072 fits (device 100.9/117.2
+      # GiB; 64K was 91.2 (+9.7 GiB per 64K step); GTT headroom 16.0 GiB). 256K untested (<10 GiB headroom).
       # output = 8192: a client max_tokens is honored up to
       # capacity-prompt (verified: max_tokens 8192 on a 32-tok prompt ->
       # 8154 completions, finish length), so 8192 is the non-degenerate
-      # ceiling for long generations on the 64K window.
+      # ceiling for long generations.
       "glm-5.3-flash-tp2":
-        context: 65536
+        context: 131072
         output: 8192
         name: "GLM-5.3-Flash TP2 (2x Strix Halo, USB4 STREAM)"
       # MILESTONE BACKLOG (gufo cutover): demoted 2026-11-11, GLM is the
