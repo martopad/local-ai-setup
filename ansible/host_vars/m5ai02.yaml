@@ -12,10 +12,11 @@
 # stays out-of-band. Bootstrap (2026-11-09): prod user +
 # /home/martin/.ssh/keys/prod-m5ai02 created on the box via root.key.
 #
-# GTT/TTM pool (2026-11-09): BIOS UMA frame buffer at 1G minimum
-# (124 GiB host RAM, 1 GiB VRAM BAR — same as m5ai01). The effective
-# 110 GiB pool is pinned by the kernel command line on this box:
-# ttm.pages_limit=28835840 + ttm.page_pool_size=28835840 in
+# GTT/TTM pool (2026-11-09, bumped 2026-11-11): BIOS UMA frame
+# buffer at 1G minimum (124 GiB host RAM, 1 GiB VRAM BAR — same as
+# m5ai01). The effective 117.2 GiB pool is pinned by the kernel
+# command line on this box:
+# ttm.pages_limit=30720000 + ttm.page_pool_size=30720000 in
 # /boot/grub/grub.cfg (backup .bak-ttm) — this box's boot-time module
 # loader is the kernel's own symbol autoloader and does NOT apply
 # /etc/modprobe.d options, so the GRUB cmdline is the working mechanism
@@ -24,8 +25,10 @@
 # is ever changed, the GRUB cmdline on m5ai02 must be updated in the
 # same run (out-of-band, root).
 
-# iGPU GTT/TTM pool limit. 4 KiB pages: 110 GiB * 1024**3 / 4096.
-amd_gtt_limit_pages: 28835840
+# iGPU GTT/TTM pool limit. 4 KiB pages: 30720000 = 120000M = ~117.2 GiB.
+# Bumped 2026-11-11 from 28835840 (110 GiB) for the GLM-5.3 engine
+# (~117 GiB GPU-mappable admission; the engine lab's own pin).
+amd_gtt_limit_pages: 30720000
 
 # Privilege model: same as m5ai01 — the routine run connects as prod
 # and touches only user-scoped state; all root-side roles are gated

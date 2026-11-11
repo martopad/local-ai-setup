@@ -15,11 +15,13 @@
 # resolver/DNSSEC fix is better; the hosts line can then be dropped.
 
 # iGPU GTT/TTM pool limit, managed by the amd_gtt role
-# (/etc/modprobe.d/ttm.conf). 4 KiB pages: 110 GiB * 1024**3 / 4096.
-# The BIOS UMA carve-out on this box is at its 1G minimum, so the OS
-# keeps ~14.5 GiB and the iGPU can address ~110 GiB of the unified pool.
+# (/etc/modprobe.d/ttm.conf). 4 KiB pages: 30720000 = 120000M = ~117.2 GiB.
+# Bumped 2026-11-11 from 28835840 (110 GiB) to 30720000 for the GLM-5.3
+# engine, whose startup admission wants ~117 GiB GPU-mappable — the
+# engine lab's own pin. BIOS UMA carve-out is at its 1G minimum, so the
+# OS keeps ~7 GiB and the iGPU can address ~117 GiB of the unified pool.
 # See the README "Strix Halo (AMD Strix Halo boxes): GFX UMA" section.
-amd_gtt_limit_pages: 28835840
+amd_gtt_limit_pages: 30720000
 
 # Privilege model (user decision, 2026-11-08): prod gets NO sudo.
 # Routine playbook runs connect as prod and touch only user-scoped state

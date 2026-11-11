@@ -226,9 +226,9 @@ Steps for a new Strix Halo box:
    The `amd_gtt` role renders `/etc/modprobe.d/ttm.conf`
    (`options ttm pages_limit/page_pool_size` — the file AMD's `amd-ttm`
    tool writes), so the limit is a repo value, not a hand edit.
-   Leave a working OS margin (m5ai01 uses 110 GiB of ~124.5 GiB,
-   ~14.5 GiB left for the OS; the limit is a ceiling on shared RAM the
-   GPU may pin, not a dedicated reservation).
+   Leave a working OS margin (m5ai01 uses 117.2 GiB of ~124.5 GiB as
+   of 2026-11-11, ~7 GiB left for the OS; the limit is a ceiling on
+   shared RAM the GPU may pin, not a dedicated reservation).
 3. **Reboot** and verify: `dmesg | grep -i amdgpu` (VRAM/GTT lines) and
    `/sys/class/drm/card0/device/mem_info_gtt_total`. A bad value fails
    safely (kernel keeps its default; it cannot brick the boot).

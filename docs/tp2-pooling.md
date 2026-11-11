@@ -18,10 +18,11 @@ roll back, and what the repo now owns.
 ```
 
 - Two BOSGAME BeyondMax (Strix Halo / gfx1151) units, 128 GB unified
-  memory each, BIOS: UMA frame buffer = 1 GiB, GTT pinned to 110 GiB
-  via `ttm.pages_limit=28835840` (kernel cmdline; see the amd_gtt role
-  notes — on m5ai02 the boot loader bypasses /etc/modprobe.d, so the
-  cmdline is the source of truth).
+  memory each, BIOS: UMA frame buffer = 1 GiB, GTT pinned to 117.2 GiB
+  (30720000 pages; bumped from 110 GiB on 2026-11-11 for the GLM-5.3
+  engine) via `ttm.pages_limit=30720000` (kernel cmdline; see the
+  amd_gtt role notes — on m5ai02 the boot loader bypasses
+  /etc/modprobe.d, so the cmdline is the source of truth).
 - One 1 m "TB5 80G" USB4 cable (superseded the original TB3 eGPU
   cable; the very first 240 W USB2 charging cable *cannot* train a
   USB4 link at all — a plain USB2 cable is electrically silent on
@@ -205,7 +206,7 @@ them). Q8 weights are the expected remedy for the verbose loop.
 
 - rank1 as a systemd user unit on m5ai02 (the current ssh-detached
   `nohup` is debug-adequate; the unit survives box reboots better)
-- Q8 weights (~2× the weight footprint; check the 110 GiB GTT
+- Q8 weights (~2× the weight footprint; check the 117.2 GiB GTT
   budget before the sync)
 - Second cable for the big-model path (GLM-5.3-Flash / DeepSeek
   class). The 1 m "TB5 80G" cable trains the full 40 Gbps (20.0 Gb/s
