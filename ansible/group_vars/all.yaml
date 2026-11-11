@@ -107,9 +107,19 @@ vllm_endpoints:
       # per the serve config (8192 x 8192). The gufo tier is milestone
       # backlog (demoted from the catalog 2026-11-11) — un-comment when
       # the gufo cutover lands.
+      # context = the engine's served window: --capacity 8192 per slot
+      # (deployment default; the launcher passes no --capacity), prompt
+      # + output SHARED in that 8192. output = the engine's
+      # default_max_tokens 4096 (glm_serve_main.cpp; the launcher passes
+      # no --max-tokens). A client-requested max_tokens is honored up to
+      # capacity - prompt (verified 2026-11-11: max_tokens 8192 on a 32-tok
+      # prompt -> 8154 completions, finish length), so 4096 is the
+      # non-degenerate ceiling. Raising the window is a launcher change
+      # (--capacity on both ranks, KV-memory fit permitting), not a
+      # catalog value.
       "glm-5.3-flash-tp2":
         context: 8192
-        output: 8192
+        output: 4096
         name: "GLM-5.3-Flash TP2 (2x Strix Halo, USB4 STREAM)"
       # MILESTONE BACKLOG (gufo cutover): demoted 2026-11-11, GLM is the
       # resident engine. context == gufo's --context; output == gufo's
