@@ -1,0 +1,15 @@
+# Ansible-managed (strix_glm role): DKMS exclusion of the gufo RDMA
+# verbs module from the Strix lab kernels.
+#
+# DKMS reads /etc/dkms/<module>.conf as a local override that takes
+# precedence over the module's own dkms.conf. BUILD_EXCLUSIVE_KERNEL
+# is a regex ALLOWLIST (bash =~ partial match): `dkms autoinstall`
+# skips this module for any kernel release that does not match, so
+# 40-dkms.install (the kernel-install chain's dkms step) can never
+# build it for a lab kernel. The distro kernels (the -gentoo-dist[-bin]
+# releases) keep building it: the gufo RDMA stack belongs there, and
+# booting back to a distro kernel restores it automatically.
+#
+# Defense in depth: /etc/kernel/install.d/45-exclude-gufo.install
+# removes any installation that gets through before dracut runs.
+BUILD_EXCLUSIVE_KERNEL="{{ strix_glm_build_exclusive_kernel }}"

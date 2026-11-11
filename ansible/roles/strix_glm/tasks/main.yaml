@@ -1,0 +1,135 @@
+---
+# Strix lab-kernel policy (root-gated, gate: strix_glm_managed).
+#
+# Keeps the gufo RDMA verbs DKMS module (thunderbolt-ibverbs) out of
+# the lab (strix-gpu-bosgame) kernels:
+#  1. DKMS allowlist: /etc/dkms/<module>.conf, BUILD_EXCLUSIVE_KERNEL
+#     -> dkms autoinstall (40-dkms.install in the kernel-install
+#     chain) never builds the module for lab releases.
+#  2. kernel-install hook: /etc/kernel/install.d/45-exclude-gufo.
+#     install removes an installation that slipped through, running
+#     between 40-dkms and 50-depmod/52-dracut so dracut generates
+#     the initramfs from a clean tree (a .ko embedded in the
+#     initramfs re-loads on every boot and survives switch_root).
+#  3. Verification: lab module trees carry no .ko; the distro
+#     kernels keep theirs; the lab initramfs embeds neither the .ko
+#     nor the load request (zstd-aware: dracut images are
+#     concatenated cpio archives and plain cpio/file only sees the
+#     early-microcode first section).
+#
+# Root-side files only (/etc/dkms, /etc/kernel/install.d): run the
+# playbook's strix_glm play with a root connection. Gate off = the
+# role is inert, so a prod-connection run never touches these files.
+
+- name: Deploy the DKMS exclusion allowlist
+  # Allowlist regex (unanchored, bash =~): "-gentoo-dist" matches
+  # 6.18.62-gentoo-dist-bin AND 7.3.3-gentoo-dist; lab releases do
+  # not match. See defaults (strix_glm_build_exclusive_kernel).
+  ansible.builtin.template:
+    src: dkms-thunderbolt-ibverbs.conf.j2
+    dest: "/etc/dkms/{{ strix_glm_dkms_module }}.conf"
+    mode: "0644"
+  when: (strix_glm_managed | default(false)) | bool
+
+- name: Deploy the kernel-install exclusion hook
+  ansible.builtin.template:
+    src: 45-exclude-gufo.install.j2
+    dest: /etc/kernel/install.d/45-exclude-gufo.install
+    mode: "0755"
+  when: (strix_glm_managed | default(false)) | bool
+
+- name: Verify no gufo .ko in the lab kernels' module trees
+  # The DKMS module identifier is hyphenated (thunderbolt-ibverbs) but
+  # the built kernel module is underscored (thunderbolt_ibverbs.ko);
+  # match both forms so neither a misspelled glob nor the DKMS
+  # DEST_MODULE_NAME can make this check pass for the wrong reason.
+  ansible.builtin.shell: |
+    set -e
+    for rel in /lib/modules/*{{ strix_glm_release_prefix }}*; do
+      [ -e "$rel" ] || continue
+      if ls "$rel/updates/dkms/" 2>/dev/null | grep -qiE "thunderbolt[_-]ibverbs"; then
+        echo "FAIL: $rel/updates/dkms carries the gufo module (re-run the 45 hook or dkms remove)"
+        exit 1
+      fi
+    done
+    echo "lab module trees clean"
+  changed_when: false
+  when:
+    - (strix_glm_managed | default(false)) | bool
+    - not ansible_check_mode | default(false)
+
+- name: Verify the gufo module is intact for the distro kernels
+  # The DKMS module identifier is hyphenated (thunderbolt-ibverbs) but
+  # the built kernel module is underscored (thunderbolt_ibverbs.ko);
+  # match both forms. Hard gate only for the RUNNING kernel (if it is
+  # a distro kernel: the gufo stack must be available on the kernel
+  # that is actually running). Stale leftover distro trees that DKMS
+  # never built for are reported, not failed: booting into an
+  # abandoned rollback kernel without gufo is a known limitation,
+  # not a regression this role should gate on.
+  ansible.builtin.shell: |
+    set -e
+    RUN=$(uname -r)
+    case "$RUN" in
+      *-gentoo-dist*|*-gentoo-dist-bin*)
+        if ! ls "/lib/modules/$RUN/updates/dkms/" 2>/dev/null | grep -qiE "thunderbolt[_-]ibverbs"; then
+          echo "FAIL: running distro kernel $RUN lacks the gufo module"
+          exit 1
+        fi
+        echo "ok: running kernel $RUN"
+        ;;
+    esac
+    for rel in /lib/modules/*-gentoo-dist*; do
+      [ -e "$rel" ] || continue
+      [ "$rel" = "/lib/modules/$RUN" ] && continue
+      if ! ls "$rel/updates/dkms/" 2>/dev/null | grep -qiE "thunderbolt[_-]ibverbs"; then
+        echo "note: $rel lacks the gufo module (gufo stack unavailable if that kernel is booted)"
+      fi
+    done
+    echo "gufo distro-kernel check done"
+  changed_when: false
+  when:
+    - (strix_glm_managed | default(false)) | bool
+    - not ansible_check_mode | default(false)
+
+- name: Verify the lab initramfs embeds neither the .ko nor the load request
+  # zstd-aware: a dracut image here = an early cpio (microcode) + a
+  # zstd-compressed main cpio; plain cpio/file/lsinitrd only ever see
+  # the first archive, so the check must extract the zstd section.
+  ansible.builtin.shell: |
+    set -e
+    for img in /boot/initramfs-*{{ strix_glm_release_prefix }}*.img; do
+      [ -e "$img" ] || continue
+      rm -f /tmp/.strix-ir-main.bin
+      python3 -c "
+      import sys
+      data = open('$img', 'rb').read()
+      i = data.find(b'\x28\xb5\x2f\xfd')
+      if i >= 0:
+          open('/tmp/.strix-ir-main.bin', 'wb').write(data[i:])
+      else:
+          print('note: no zstd section in $img')
+      "
+      if [ -s /tmp/.strix-ir-main.bin ]; then
+        rm -rf /tmp/.strix-ir
+        mkdir -p /tmp/.strix-ir
+        zstdcat /tmp/.strix-ir-main.bin 2>/dev/null | (cd /tmp/.strix-ir && cpio -idm 2>/dev/null)
+        if find /tmp/.strix-ir -name "*thunderbolt*ibverbs*.ko*" 2>/dev/null | grep -q .; then
+          echo "FAIL: $img embeds the gufo module"
+          exit 1
+        fi
+        # (the modprobe.d PARAMS conf may be embedded too; it is inert
+        # when the module is absent, so it is not a fail condition.)
+        if [ -e /tmp/.strix-ir/etc/modules-load.d/thunderbolt-ibverbs.conf ]; then
+          echo "FAIL: $img embeds the modules-load.d load request"
+          exit 1
+        fi
+      fi
+      rm -rf /tmp/.strix-ir /tmp/.strix-ir-main.bin
+      echo "clean: $img"
+    done
+    echo "lab initramfs clean"
+  changed_when: false
+  when:
+    - (strix_glm_managed | default(false)) | bool
+    - not ansible_check_mode | default(false)

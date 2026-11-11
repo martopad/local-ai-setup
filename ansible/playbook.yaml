@@ -46,3 +46,23 @@
   become: false
   roles:
     - usb4_rdma
+
+# Root-gated play: Strix lab-kernel policy (strix_glm role). Keeps
+# the gufo RDMA verbs DKMS module out of the lab (strix-gpu-bosgame)
+# kernels: a DKMS allowlist (/etc/dkms/<module>.conf,
+# BUILD_EXCLUSIVE_KERNEL) so autoinstall never builds it for lab
+# releases, plus a kernel-install hook (/etc/kernel/install.d/
+# 45-exclude-gufo.install) that removes any installation that slips
+# through, running between 40-dkms and 50-depmod/52-dracut so dracut
+# always generates the lab initramfs from a clean module tree. The
+# distro kernels keep the gufo module: booting back restores the gufo
+# stack. Invocation (root connection, CLI gate):
+#   ansible-playbook -i ansible/inventory.yaml ansible/playbook.yaml \
+#     -l m5ai01,m5ai02 -e ansible_user=root \
+#     -e ansible_private_key_file=$HOME/.ssh/keys/root.key \
+#     -e strix_glm_managed=true
+- name: Strix lab-kernel policy (root)
+  hosts: vllm
+  become: false
+  roles:
+    - strix_glm

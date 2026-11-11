@@ -1,0 +1,36 @@
+#!/bin/sh
+# Ansible-managed (strix_glm role): kernel-install hook that keeps the
+# gufo RDMA verbs DKMS module ({{ strix_glm_dkms_module }}/{{ strix_glm_dkms_module_version }})
+# out of the Strix lab kernels.
+#
+# Why it exists: the systemd kernel-install chain (/usr/lib/kernel/
+# install.d/, lexical order) runs 40-dkms.install (dkms autoinstall)
+# BEFORE 50-depmod.install and 52-dracut.install. If the DKMS
+# allowlist (/etc/dkms/{{ strix_glm_dkms_module }}.conf) is missing or
+# out of date, the .ko lands in the new lab kernel's module tree and
+# dracut bakes it into that kernel's initramfs (dracut embeds the
+# module tree at build time; a module loaded from the initramfs
+# persists across switch_root). This hook runs between the two, so
+# the boot artifact is generated from a clean tree.
+#
+# kernel-install(8) hook arguments: $1 kernel version, $2 arch,
+# $3 image, $4 initrd.
+#
+# Release-scoped: acts ONLY on lab releases ({{ strix_glm_release_prefix }}*);
+# for every other kernel it is a no-op, leaving the gufo stack on the
+# distro kernels untouched.
+#
+# `dkms remove -k` deletes the kernel-specific build+install state
+# (the source registration and the distro-kernel builds are kept). It
+# is only invoked when DKMS actually reports an entry for this
+# kernel, so a no-op kernel never fails the install; a real removal
+# failure does fail it (loud beats silent drift).
+
+case "$1" in
+  *{{ strix_glm_release_prefix }}*)
+    if dkms status 2>/dev/null | grep -q "{{ strix_glm_dkms_module }}/{{ strix_glm_dkms_module_version }}, $1,"; then
+      dkms remove "{{ strix_glm_dkms_module }}/{{ strix_glm_dkms_module_version }}" -k "$1" || exit 1
+    fi
+    ;;
+esac
+exit 0

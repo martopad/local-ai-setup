@@ -1,0 +1,43 @@
+# Strix lab-kernel policy (root-gated; gate: strix_glm_managed).
+#
+# Keeps the gufo RDMA verbs DKMS module (usb4_rdma_pkgname, see the
+# usb4_rdma role's defaults) OUT of the lab (strix-gpu-bosgame)
+# kernels: the module's NHI ring reservation collides with
+# thunderbolt_stream's XDomain discovery, and the dracut snapshot at
+# initramfs-build time means an installed .ko rides into the boot
+# artifact (initramfs-loaded modules persist across switch_root).
+#
+# Two layers, both machine-side (NOT the kernel ebuild):
+#  1. /etc/dkms/<module>.conf with BUILD_EXCLUSIVE_KERNEL (a regex
+#     ALLOWLIST, bash =~ partial match): dkms autoinstall skips the
+#     module for any kernel release that does not match.
+#  2. /etc/kernel/install.d/45-exclude-gufo.install: removes an
+#     installation that slipped through, running between 40-dkms and
+#     50-depmod/52-dracut in the systemd kernel-install chain, so the
+#     initramfs is generated from a clean tree.
+
+# Gate off = role is inert. Root-gated: run the playbook's strix_glm
+# play with a root connection (see the playbook comment).
+strix_glm_managed: false
+
+# BUILD_EXCLUSIVE_KERNEL value: an UNANCHORED bash regex partial match
+# against the target kernel's release string. "-gentoo-dist" matches the
+# two distro release forms on the pool (6.18.62-gentoo-dist-bin AND
+# 7.3.3-gentoo-dist). Do NOT anchor it to "-gentoo-dist$": that would
+# silently stop gufo building for the -bin variant. Strix lab releases
+# (7.3.0-rc5-strix-gpu-bosgame-<id>) do not match, so they are
+# excluded by construction.
+strix_glm_build_exclusive_kernel: "-gentoo-dist"
+
+# Release prefix of the lab kernels (the strix-kernel ebuild's
+# LOCALVERSION family). The kernel-install hook acts ONLY on these;
+# for every other kernel it is a no-op, so the gufo stack on the
+# distro kernels stays untouched.
+strix_glm_release_prefix: "7.3.0-rc5-strix-gpu-bosgame-"
+
+# The gufo module's DKMS identity. KEEP IN SYNC with the usb4_rdma
+# role's defaults (usb4_rdma_pkgname / usb4_rdma_pkgversion);
+# duplicated here because role defaults are play-scoped and the
+# strix_glm play does not include the usb4_rdma role.
+strix_glm_dkms_module: "thunderbolt-ibverbs"
+strix_glm_dkms_module_version: "0.4.0"
