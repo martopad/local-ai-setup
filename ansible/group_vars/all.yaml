@@ -120,7 +120,7 @@ vllm_endpoints:
       # ceiling for long generations.
       "glm-5.3-flash-tp2":
         context: 131072
-        output: 8192
+        output: 16384
         name: "GLM-5.3-Flash TP2 (2x Strix Halo, USB4 STREAM)"
       # MILESTONE BACKLOG (gufo cutover): demoted 2026-11-11, GLM is the
       # resident engine. context == gufo's --context; output == gufo's
