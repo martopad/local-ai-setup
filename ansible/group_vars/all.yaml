@@ -101,6 +101,18 @@ vllm_endpoints:
   - provider: "vllm-m5"
     name: "m5ai01 (Strix Halo, llama-swap / vLLM ROCm)"
     base_url: "http://192.168.0.4:8000/v1"
+    # providerOptions: the openai-compatible provider merges unknown settings
+    # keys into every request body sent to this endpoint.
+    #  - preserve_thinking: GLM-5 re-renders the whole conversation each turn;
+    #    when unset the template CLEARS earlier assistant reasoning, so the
+    #    prompt stops being a stable prefix-cache key and every turn is a
+    #    cold full-prefill (~9.5s at 2K-tok prompts). With it set, opencode's
+    #    replayed reasoning_content aligns with the cached prefix and turns
+    #    2..N hit the cache (measured 2026-11-12: prefill 9.5s -> 0.6s,
+    #    hit_tokens = full prior prompt). The engine now defaults to true as
+    #    well (glm-serve, 2026-11-12); keeping it here documents the contract.
+    settings:
+      preserve_thinking: true
     models:
       # RESIDENT ENGINE on the m5 pool (2026-11-11 cutover): GLM-5.3-Flash,
       # 2-rank TP2 over USB4 STREAM on the strix lab kernel. context/output

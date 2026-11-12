@@ -64,10 +64,11 @@
     "{{ ep.provider }}": {
       "package": "@opencode/ai/providers/openai-compatible",
       "name": "{{ ep.name | default(ep.provider) }}",
-      "settings": {
-        "baseURL": "{{ ep.base_url }}",
-        "apiKey": "unused"
-      },
+{# Unknown settings keys are providerOptions: the openai-compatible provider
+   merges them into every request body for this endpoint (e.g. the GLM pool's
+   preserve_thinking, see group_vars vllm_endpoints). Rendered as one
+   expression so the block stays byte-stable for endpoints without settings. #}
+      "settings": {{ ({'baseURL': ep.base_url, 'apiKey': 'unused'} | combine(ep.settings | default({}))) | to_json }},
       "models": {
 {% for mid, spec in ep.models.items() %}
         "{{ mid }}": {
