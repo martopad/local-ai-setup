@@ -1,0 +1,53 @@
+#!/bin/bash
+# llama-swap launcher, containerized GLM-5.3 TP2 ({{ strix_glm5_image }} on
+# this box + {{ strix_glm5_peer_host }}, USB4 STREAM transport, /dev/tbstream0-3).
+#
+#   run PORT : stop stale pair, start rank1 on {{ strix_glm5_peer_host }} (background),
+#              exec rank0 in foreground on PORT
+#   stop     : stop both ranks (llama-swap cmdStop)
+#
+# Rank0 runs foreground with --rm --init so llama-swap's SIGTERM/cmdStop
+# semantics stay clean (same contract as tp2-swap.sh).
+set -euo pipefail
+exec > >(tee -a "$HOME/glm5-swap.log") 2>&1
+echo "=== glm5-swap $(date '+%F %T') args: $*"
+
+SSH_M502="ssh -i {{ strix_glm5_peer_ssh_key }} -o BatchMode=yes -o ConnectTimeout=5 {{ strix_glm5_peer_user }}@{{ strix_glm5_peer_host }}"
+MID="{{ strix_glm5_model_id }}"
+IMAGE="{{ strix_glm5_image }}"
+BIN="{{ strix_glm5_bin }}"
+COMMON="--device /dev/tbstream0 --device /dev/tbstream1 --device /dev/tbstream2 --device /dev/tbstream3 --device /dev/kfd --device /dev/dri/renderD128 -v /run/usb4stream-layout.json:/run/usb4stream-layout.json:ro -v {{ strix_glm5_model_dir }}:/models:ro"
+
+stop_all() {
+  echo "glm5-swap: stopping both ranks"
+  podman stop -t 30 --ignore {{ strix_glm5_container_rank0 }} 2>/dev/null || true
+  $SSH_M502 "{{ strix_glm5_peer_launcher }} stop" 2>/dev/null || true
+  for _ in $(seq 1 30); do
+    if ! pgrep -x strix-glm5-serve >/dev/null 2>&1 \
+       && ! $SSH_M502 "pgrep -x strix-glm5-serve >/dev/null" 2>/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+}
+
+case "${1:-run}" in
+  run)
+    PORT="${2:?usage: glm5-swap.sh run PORT}"
+    stop_all
+    $SSH_M502 "{{ strix_glm5_peer_launcher }} start"
+    sleep 10   # rank1 model load; rank0's hello handshake waits for the peer
+    exec podman run --rm {% if strix_glm5_debug_prefix %}-e STRIX_GLM_DEBUG_PREFIX=1 {% endif %}--init --net=host $COMMON \
+      --name {{ strix_glm5_container_rank0 }} \
+      "$IMAGE" "$BIN" /models --world 2 --rank 0 --transport usb4-auto \
+      --host 0.0.0.0 --port "$PORT" --model-id "$MID" --capacity {{ strix_glm5_capacity }} --prefix-store-min-ram-gib {{ strix_glm5_prefix_store_min_ram_gib }}
+    ;;
+  stop)
+    stop_all
+    echo "glm5-swap: pair stopped"
+    ;;
+  status)
+    podman ps --filter name={{ strix_glm5_container_rank0 }} --format "{% raw %}{{.Names}}: {{.Status}}{% endraw %}"
+    $SSH_M502 "{{ strix_glm5_peer_launcher }} status"
+    ;;
+esac

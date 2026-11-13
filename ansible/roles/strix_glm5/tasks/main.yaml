@@ -1,0 +1,83 @@
+---
+# Strix GLM engine wiring (gate: strix_glm5_managed).
+#
+# Two layers, split by the connection user (same pattern as the
+# usb4_rdma / strix_glm plays; the playbook runs each layer on its
+# own connection so file ownership never drifts):
+#
+#  PROD LAYER (routine play, prod connection) — the launcher scripts
+#    the llama-swap catalog entry's cmd_override/cmdStop reference:
+#      rank0 host: /home/prod/glm5-swap.sh  — orchestrator: stops the
+#        stale pair, starts rank1 on the peer over prod-SSH, execs
+#        rank0 in the foreground on ${PORT} (llama-swap's
+#        load/stop/SIGTERM semantics stay clean, same contract as
+#        tp2-swap.sh).
+#      rank1 host: /home/prod/glm5-rank1.sh — detached nohup worker
+#        (start/stop/status).
+#
+#  ROOT LAYER (root-gated play, root connection):
+#      /etc/udev/rules.d/99-tbstream-perm.rules — /dev/tbstream0-3
+#        are 0660:prod so the prod containers can open the stream
+#        devices directly.
+#      /etc/default/grub GRUB_DEFAULT pin (lineinfile + grub-mkconfig
+#      handler, so a reboot keeps the pool on the lab kernel; the
+#      gufo cutover flips the pin, everything else is neutral).
+#
+# Ordering contract: the prod layer lands BEFORE the llama_swap role
+# renders the catalog, so the cmd_override never points at a missing
+# script (same contract as gufo_tp2 in the playbook).
+
+# ---------------- PROD LAYER ----------------
+
+- name: Render the rank0 orchestrator launcher
+  ansible.builtin.template:
+    src: glm5-swap.sh.j2
+    dest: /home/prod/glm5-swap.sh
+    owner: prod
+    group: prod
+    mode: "0755"
+  when:
+    - (strix_glm5_managed | default(false)) | bool
+    - (strix_glm5_pair_role | default('none')) == 'rank0'
+    - ansible_user | default('prod') != 'root'
+
+- name: Render the rank1 worker launcher
+  ansible.builtin.template:
+    src: glm5-rank1.sh.j2
+    dest: /home/prod/glm5-rank1.sh
+    owner: prod
+    group: prod
+    mode: "0755"
+  when:
+    - (strix_glm5_managed | default(false)) | bool
+    - (strix_glm5_pair_role | default('none')) == 'rank1'
+    - ansible_user | default('prod') != 'root'
+
+# ---------------- ROOT LAYER ----------------
+
+- name: Deploy the /dev/tbstream udev perms rule
+  # New content is inert until the next udev event / module reload;
+  # the handler reloads the rules so a changed file applies to
+  # existing nodes where the subsystem allows it.
+  ansible.builtin.template:
+    src: 99-tbstream-perm.rules.j2
+    dest: /etc/udev/rules.d/99-tbstream-perm.rules
+    mode: "0644"
+  notify: Reload udev rules
+  when:
+    - (strix_glm5_managed | default(false)) | bool
+    - ansible_user | default('prod') == 'root'
+
+- name: Pin GRUB_DEFAULT to the lab kernel
+  # lineinfile keeps the rest of /etc/default/grub (the amd_gtt role
+  # owns GRUB_CMDLINE_LINUX in the same file) untouched; the handler
+  # regenerates /boot/grub/grub.cfg only when this line changes.
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_DEFAULT='
+    line: "GRUB_DEFAULT='{{ strix_glm5_grub_default }}'"
+    create: true
+  notify: Regenerate the grub config
+  when:
+    - (strix_glm5_managed | default(false)) | bool
+    - ansible_user | default('prod') == 'root'

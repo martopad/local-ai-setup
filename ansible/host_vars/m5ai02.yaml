@@ -92,3 +92,12 @@ gufo_tp2_bootstrap_host: "192.168.0.4"
 # (192.168.240.2/24, unroutable between the boxes on purpose).
 usb4_rdma_tbv0_ip: "192.168.240.2/24"
 usb4_rdma_tbv0_uuid: "c59ab1d2-d08e-490c-bf3b-89def3c56a32"
+
+# GLM-5.3-Flash TP2 engine pairing (strix_glm5 role, 2026-11-13):
+# this box is the rank1 worker (no HTTP; the m5ai01 orchestrator
+# drives /home/prod/glm5-rank1.sh over prod-SSH). The root layer
+# shares m5ai01's udev perms rule + GRUB_DEFAULT pin (same files,
+# same values — both boxes must boot the lab kernel or the pair
+# won't form). All other values fall back to the role defaults.
+strix_glm5_managed: true
+strix_glm5_pair_role: rank1

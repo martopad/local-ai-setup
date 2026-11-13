@@ -24,6 +24,12 @@
     - portage_overlay
     - stuff_overlay
     - llama_swap_install
+    # GLM-5.3-Flash TP2 engine wiring (strix_glm5 role): the prod
+    # layer lands the launcher scripts BEFORE llama_swap renders the
+    # catalog, so the GLM entry's cmd_override never points at a
+    # missing script. The role's root layer (udev perms rule +
+    # GRUB_DEFAULT pin) runs on the root-gated play 4, NOT here.
+    - strix_glm5
     - llama_swap
     - role: opencode
       tags: [opencode]
@@ -66,3 +72,24 @@
   become: false
   roles:
     - strix_glm
+
+# Root-gated play: Strix GLM engine wiring (strix_glm5 role, root
+# layer). Owns the machine-side files the GLM pair needs across
+# reboots: the /dev/tbstream udev perms rule (/etc/udev/rules.d/,
+# 0660:prod so the prod containers open the stream devices) and the
+# GRUB_DEFAULT pin to the lab kernel (/etc/default/grub +
+# grub-mkconfig handler). The role's prod layer (the launcher
+# scripts) runs on the routine play 1 with a prod connection — the
+# connection-user split keeps file ownership from drifting.
+# Invocation (root connection; the gate comes from the hosts'
+# host_vars, so the CLI only carries the connection vars):
+#   ansible-playbook -i ansible/inventory.yaml ansible/playbook.yaml \
+#     -l m5ai01,m5ai02 -e ansible_user=root \
+#     -e ansible_private_key_file=$HOME/.ssh/keys/root.key
+# Cutover note: the gufo cutover flips strix_glm5_grub_default to
+# the 7.3.4 entry in host_vars; no code change is needed.
+- name: Strix GLM engine wiring (root)
+  hosts: vllm
+  become: false
+  roles:
+    - strix_glm5

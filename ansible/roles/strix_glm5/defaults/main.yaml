@@ -1,0 +1,61 @@
+# Strix GLM-5.3-Flash TP2 engine wiring (gate: strix_glm5_managed).
+#
+# Formalizes the out-of-band GLM cutover wiring (2026-11-11, note #9)
+# into the repo: the launcher scripts the llama-swap catalog's
+# cmd_override references, the /dev/tbstream udev perms rule, and the
+# GRUB_DEFAULT pin that keeps the pool on the lab kernel across
+# reboots. The gufo cutover flips strix_glm5_grub_default to the
+# 7.3.4 entry; every other value here is cutover-neutral.
+
+# Gate off = role is inert (both layers).
+strix_glm5_managed: false
+
+# Which side of the pair this host is: rank0 (orchestrator + HTTP),
+# rank1 (detached worker), or none (role inert for the launchers).
+strix_glm5_pair_role: none
+
+# Lab kernel release the GLM pool runs on (strix-kernel ebuild
+# LOCALVERSION family; c = the 2026-11-11 release). The GRUB_DEFAULT
+# pin is derived from it; the gufo cutover changes this.
+strix_glm5_release: "7.3.0-rc5-strix-gpu-bosgame-20261111c"
+# The GRUB_DEFAULT value: submenu > entry title, as /etc/default/grub
+# and grub-mkconfig expect. (The generated /boot/grub/grub.cfg stays
+# unmanaged; only the input side is owned.)
+strix_glm5_grub_default: "Advanced options for Gentoo GNU/Linux>Gentoo GNU/Linux, with Linux 7.3.0-rc5-strix-gpu-bosgame-20261111c"
+
+# Engine image + in-container binary (built from the vendored
+# Dockerfile in the strix_glm role's files/docker/, on each box).
+strix_glm5_image: "localhost/strix-glm5:gfx1151"
+strix_glm5_bin: "/build/strix-engine-lab/build/strix-glm5-serve"
+
+# Model: GLM-5.3-Flash EXL3 (4.05bpw), host-side weights dir.
+strix_glm5_model_id: "glm-5.3-flash-tp2"
+strix_glm5_model_dir: "/home/prod/models/glm53/glm"
+
+# Serve window: --capacity 131072 per slot (both ranks; the engine's
+# KV allocation is EAGER, so a too-big value fails the startup
+# headroom admission, not OOM mid-run). 131072 = 100.9 GiB device /
+# 16.0 GiB GTT headroom measured; 256K deliberately not attempted.
+strix_glm5_capacity: 131072
+# Prefix-cache store gate: 0 = always allow (the pool boxes sit at
+# ~13.5 GiB MemAvailable, below the engine's 16 GiB default floor, so
+# the gate must be lifted or the prefix cache stores nothing).
+strix_glm5_prefix_store_min_ram_gib: 0
+# pxdbg journal diagnostics (find/store lines in journalctl): true =
+# render `-e STRIX_GLM_DEBUG_PREFIX=1` into both launchers.
+strix_glm5_debug_prefix: true
+
+# Container names (rank0 also feeds the llama-swap service unit's
+# ExecStopPost safety net via the catalog's container_name).
+strix_glm5_container_rank0: "strix-glm5-rank0"
+strix_glm5_container_rank1: "strix-glm5-rank1"
+
+# rank0 -> rank1 orchestration (only the rank0 host uses these):
+# prod-SSH with a key-only credential (the key file itself is
+# out-of-band; only its path is managed here).
+strix_glm5_peer_host: "192.168.0.64"
+strix_glm5_peer_user: "prod"
+strix_glm5_peer_ssh_key: "/home/prod/.ssh/id_ed25519_m5ai02"
+strix_glm5_peer_launcher: "/home/prod/glm5-rank1.sh"
+# rank1 log (the detached nohup target + status tail).
+strix_glm5_rank1_log: "/home/prod/glm5-rank1.log"

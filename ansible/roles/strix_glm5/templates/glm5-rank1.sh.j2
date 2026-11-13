@@ -1,0 +1,27 @@
+#!/bin/bash
+# GLM-5.3 TP2 rank1 starter on {{ inventory_hostname | default('m5ai02') }} (prod). start: detached nohup; stop: kill.
+set -e
+case "$1" in
+  start)
+    podman rm -f {{ strix_glm5_container_rank1 }} 2>/dev/null || true
+    nohup podman run --rm {% if strix_glm5_debug_prefix %}-e STRIX_GLM_DEBUG_PREFIX=1 {% endif %}--init --net=host \
+      --device /dev/tbstream0 --device /dev/tbstream1 --device /dev/tbstream2 --device /dev/tbstream3 \
+      --device /dev/kfd --device /dev/dri/renderD128 \
+      -v /run/usb4stream-layout.json:/run/usb4stream-layout.json:ro \
+      --name {{ strix_glm5_container_rank1 }} \
+      -v {{ strix_glm5_model_dir }}:/models:ro \
+      {{ strix_glm5_image }} \
+      {{ strix_glm5_bin }} /models --world 2 --rank 1 --transport usb4-auto --capacity {{ strix_glm5_capacity }} \
+      --prefix-store-min-ram-gib {{ strix_glm5_prefix_store_min_ram_gib }} \
+      > {{ strix_glm5_rank1_log }} 2>&1 &
+    echo "rank1 started"
+    ;;
+  stop)
+    podman rm -f {{ strix_glm5_container_rank1 }} 2>/dev/null || true
+    echo "rank1 stopped"
+    ;;
+  status)
+    podman ps --filter name={{ strix_glm5_container_rank1 }} --format "{% raw %}{{.Names}}: {{.Status}}{% endraw %}"
+    tail -2 {{ strix_glm5_rank1_log }} 2>/dev/null
+    ;;
+esac

@@ -99,10 +99,11 @@ llama_swap_linger: false    # linger was enabled once (root, bootstrap);
 llama_swap_models:
   # RESIDENT ENGINE (2026-11-11 cutover): GLM-5.3-Flash, 2-rank TP2 over
   #    USB4 STREAM on the strix lab kernel (c, both boxes). The
-  #    orchestrator launcher is out-of-band (note #9): glm5-swap.sh
-  #    starts rank1 on m5ai02 over prod-SSH and runs rank0 in the
-  #    foreground on ${PORT}, so llama-swap's load/stop semantics stay
-  #    clean. container_name grows the service unit's ExecStopPost
+  #    orchestrator launcher is rendered by the strix_glm5 role
+  #    (in-repo since 2026-11-13): glm5-swap.sh starts rank1 on the
+  #    peer over prod-SSH and runs rank0 in the foreground on ${PORT},
+  #    so llama-swap's load/stop semantics stay clean.
+  #    container_name grows the service unit's ExecStopPost
   #    safety net.
   - id: glm-5.3-flash-tp2
     name: "GLM-5.3-Flash TP2 (EXL3 4.05bpw, 2x Strix Halo, USB4 STREAM)"
@@ -228,3 +229,17 @@ gufo_tp2_image_digest: "3b1cd967de06e82a2867811b570aad1cd57fa8a3a208e5c949cad64b
 # (192.168.240.1/24, unroutable between the boxes on purpose).
 usb4_rdma_tbv0_ip: "192.168.240.1/24"
 usb4_rdma_tbv0_uuid: "b59bc161-1bda-46c4-823e-f6091f9a9991"
+
+# GLM-5.3-Flash TP2 engine pairing (strix_glm5 role, 2026-11-13):
+# this box is the rank0/orchestrator side. The prod layer renders
+# /home/prod/glm5-swap.sh (the catalog entry's cmd_override); the
+# root layer (separate play) owns the udev perms rule + the
+# GRUB_DEFAULT pin so a reboot keeps the pool on the lab kernel.
+# Everything except the pair facts falls back to the role defaults;
+# the prod->m5ai02 SSH key is a credential (out-of-band — only its
+# path is managed here).
+strix_glm5_managed: true
+strix_glm5_pair_role: rank0
+strix_glm5_peer_host: "192.168.0.64"
+strix_glm5_peer_user: "prod"
+strix_glm5_peer_ssh_key: "/home/prod/.ssh/id_ed25519_m5ai02"
