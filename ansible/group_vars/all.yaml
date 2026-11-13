@@ -115,10 +115,10 @@ vllm_endpoints:
       preserve_thinking: true
     models:
       # RESIDENT ENGINE on the m5 pool (2026-11-11 cutover): GLM-5.3-Flash,
-      # 2-rank TP2 over USB4 STREAM on the strix lab kernel. context/output
-      # per the serve config (8192 x 8192). The gufo tier is milestone
-      # backlog (demoted from the catalog 2026-11-11) — un-comment when
-      # the gufo cutover lands.
+      # 2-rank TP2 over USB4 STREAM. context/output per the serve config
+      # (--capacity 131072; output ceiling 16384). The gufo tier was
+      # demoted 2026-11-11 and re-enabled 2026-11-13 (gufo cutover,
+      # Experiment B, on the 7.3.4-gentoo-dist kernel).
       # context = the engine's served window: --capacity 131072 per slot
       # (both launchers pass it; the engine's baked-in default is 8192),
       # prompt + output SHARED in that window. The engine allocates the
@@ -134,21 +134,21 @@ vllm_endpoints:
         context: 131072
         output: 16384
         name: "GLM-5.3-Flash TP2 (2x Strix Halo, USB4 STREAM)"
-      # MILESTONE BACKLOG (gufo cutover): demoted 2026-11-11, GLM is the
-      # resident engine. context == gufo's --context; output == gufo's
-      # --max-tokens.
-      # "qwen3.8-flash-gguf":
-      #   context: 133760
-      #   output: 8192
-      #   name: "Qwen3.8-Flash-Next (m5)"
-      # # 2-rank TP2 over the USB4 RDMA rails (m5ai01 + m5ai02):
-      # # context 524288 x 2 sessions per the tp2 launcher; thinking
-      # # mode is very chatty on the Q4 build — thinking-off answers
-      # # in seconds, thinking-on needs >=12K-token budgets.
-      # "gufo-qwen3.8-flash-next-tp2-q4":
-      #   context: 524288
-      #   output: 8192
-      #   name: "Qwen3.8-Flash-Next TP2 (2x Strix Halo)"
+      # GUFO CUTOVER (Experiment B, 2026-11-13): re-enabled alongside the
+      # catalog re-enable in host_vars/m5ai01.yaml. context == gufo's
+      # --context; output == gufo's --max-tokens.
+      "qwen3.8-flash-gguf":
+        context: 133760
+        output: 8192
+        name: "Qwen3.8-Flash-Next (m5)"
+      # 2-rank TP2 over the USB4 RDMA rails (m5ai01 + m5ai02):
+      # context 524288 x 2 sessions per the tp2 launcher; thinking
+      # mode is very chatty on the Q4 build — thinking-off answers
+      # in seconds, thinking-on needs >=12K-token budgets.
+      "gufo-qwen3.8-flash-next-tp2-q4":
+        context: 524288
+        output: 8192
+        name: "Qwen3.8-Flash-Next TP2 (2x Strix Halo)"
 #  - provider: "vllm-b"
 #    name: "machine B (llama-swap / vLLM)"
 #    base_url: "http://192.168.0.x:8000/v1"

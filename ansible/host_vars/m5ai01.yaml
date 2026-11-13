@@ -116,12 +116,12 @@ llama_swap_models:
     container_name: strix-glm5-rank0
     opencode_enabled: false
 
-# MILESTONE BACKLOG (demoted from the active catalog 2026-11-11: GLM-5.3
-#    is the resident engine on this pool; these gufo entries are the
-#    single-host and TP2 cutover path for when the gufo milestone lands).
-#    Re-enable: move a block back under llama_swap_models and add its id
-#    to llama_swap_routing.members below.
-llama_swap_models_backlog:
+  # GUFO CUTOVER RE-ENABLED (Experiment B, 2026-11-13): these entries
+  #    sat in the milestone backlog since the 2026-11-11 demotion; the
+  #    cutover landed on the 7.3.4-gentoo-dist kernel, so they are
+  #    active again. The exclusive gpu routing group still serves one
+  #    engine at a time; GLM remains the resident engine (re-load it
+  #    after a gufo run).
   # THE FLAGSHIP via gufo (2026-11-09): Qwen3.8-Flash-Next, newest
   #    3.8-gen MoE (6B active; beats Qwen3.8-27B on SWE-Pro 62.5 vs 61.7
   #    and DeepSWE 58.7 vs 42.2). The vLLM/Quark-MXFP4 route for this
@@ -210,10 +210,9 @@ llama_swap_routing:
       # when a member has no model config; the template guard enforces
       # it at deploy time).
       - "glm-5.3-flash-tp2"
-      # MILESTONE BACKLOG (gufo cutover): un-comment when the gufo blocks
-      # move back into llama_swap_models:
-      # - "qwen3.8-flash-gguf"
-      # - "gufo-qwen3.8-flash-next-tp2-q4"
+      # Gufo cutover re-enabled 2026-11-13 (Experiment B):
+      - "qwen3.8-flash-gguf"
+      - "gufo-qwen3.8-flash-next-tp2-q4"
 
 # Two-box pooling (gufo_tp2 role, 2026-11-10): this box is the rank0
 # host (serves HTTP + runs the llama-swap wrapper + the prod-SSH hop).
@@ -243,3 +242,9 @@ strix_glm5_pair_role: rank0
 strix_glm5_peer_host: "192.168.0.64"
 strix_glm5_peer_user: "prod"
 strix_glm5_peer_ssh_key: "/home/prod/.ssh/id_ed25519_m5ai02"
+# EXPERIMENT A (2026-11-13): GLM pair on the 7.3.4 distro kernel -
+# 7.3.4-gentoo-dist ships thunderbolt_stream in-tree, so the stream
+# layer should work without the lab kernel. The root layer pins the
+# pool to 7.3.4 while the experiment runs; the lab kernel c stays the
+# rollback entry. ROLLBACK: delete this override + run the root play.
+strix_glm5_grub_default: "Advanced options for Gentoo GNU/Linux>Gentoo GNU/Linux, with Linux 7.3.4-gentoo-dist"

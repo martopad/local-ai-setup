@@ -114,6 +114,32 @@ ansible-playbook -i ansible/inventory.yaml ansible/playbook.yaml \
   -e usb4_rdma_managed=true -e gufo_tp2_managed=false
 ```
 
+### Transport module swap (gufo <-> GLM on 7.3.4, 2026-11-13)
+
+The gufo RDMA module (`thunderbolt_ibverbs`) and the GLM stream
+layer (`thunderbolt_stream`) share the NHI rings — only one can hold
+them at a time, on any kernel:
+
+- **GLM resident** (the default): the module is NOT loaded at boot
+  (no modules-load.d entry; the DKMS allowlist keeps it out of the
+  lab kernels). If it was loaded for a gufo session: `rmmod
+  thunderbolt_ibverbs` on both boxes, then fire the GLM catalog
+  entry.
+- **gufo session**: `modprobe thunderbolt_ibverbs` on both boxes (the
+  `.ko` is pre-built by the 40-dkms install chain for 7.3.4), stop
+  the GLM pair, then fire a gufo catalog entry.
+
+While the module is loaded, `thunderbolt_stream` stream opens fail
+with `ENOMEM` (ring reservation by the module), and vice versa — so
+the cutover between the engines always starts with the module swap.
+
+Verified on 7.3.4-gentoo-dist (Experiment B, 2026-11-13): gufo TP2
+pair 51.7 tok/s decode (MTP 225/272 accepted), gufo single-rank
+57.8 tok/s, GLM pair restored after `rmmod` at 42.7 tok/s with a
+95% prefix-cache hit on the 2-turn probe. The RDMA rails register
+on modprobe alone (4 `usb4_rdma` devices, tbv0 netdev), no XDomain
+service pairing needed for enumeration.
+
 `-e gufo_tp2_managed=false` keeps play 1's prod-owned file deployment
 out of the root run (ownership drift guard). The role refuses to run
 while TP2 containers are live on the host.
